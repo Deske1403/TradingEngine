@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.33.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Denis.TradingEngine.Logging\Denis.TradingEngine.Logging.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Core\Denis.TradingEngine.Core.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.MetricsServer\Denis.TradingEngine.MetricsServer.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Orders\Denis.TradingEngine.Orders.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+    <ItemGroup>
+        <Reference Include="CSharpAPI">
+            <HintPath>libs/CSharpAPI.dll</HintPath>
+            <Private>true</Private>
+        </Reference>
+    </ItemGroup>
+</Project>
+

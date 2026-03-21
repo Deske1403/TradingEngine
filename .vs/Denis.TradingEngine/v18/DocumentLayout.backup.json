@@ -1,0 +1,205 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.app\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|solutionrelative:src\\denis.tradingengine.app\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.strategy\\ibkr_filter_tuning_reference.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}",
+      "RelativeMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|solutionrelative:src\\denis.tradingengine.strategy\\ibkr_filter_tuning_reference.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.exchange.crypto\\appsettings.crypto.bitfinex.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|solutionrelative:src\\denis.tradingengine.exchange.crypto\\appsettings.crypto.bitfinex.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.app\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|solutionrelative:src\\denis.tradingengine.app\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.strategy\\trend\\trendanalysissettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|solutionrelative:src\\denis.tradingengine.strategy\\trend\\trendanalysissettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.app\\trading\\tradingsettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|solutionrelative:src\\denis.tradingengine.app\\trading\\tradingsettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.app\\trading\\tradingorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|solutionrelative:src\\denis.tradingengine.app\\trading\\tradingorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.strategy\\pullback\\pullbackinuptrendstrategy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|solutionrelative:src\\denis.tradingengine.strategy\\pullback\\pullbackinuptrendstrategy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.exchange.crypto\\config\\cryptoexchangetradingparams.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|solutionrelative:src\\denis.tradingengine.exchange.crypto\\config\\cryptoexchangetradingparams.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.exchange.crypto\\trading\\cryptotradingorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|solutionrelative:src\\denis.tradingengine.exchange.crypto\\trading\\cryptotradingorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|c:\\users\\lenovo\\source\\repos\\denis.tradingengine\\src\\denis.tradingengine.exchange.crypto\\bitfinex\\bitfinextradingapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{813F21E4-7286-4B78-888A-2BF66AD27FDD}|src\\Denis.TradingEngine.Exchange.Crypto\\Denis.TradingEngine.Exchange.Crypto.csproj|solutionrelative:src\\denis.tradingengine.exchange.crypto\\bitfinex\\bitfinextradingapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 4,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{3ae79031-e1bc-11d0-8f78-00a0c9110057}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:3:0:{dcc4ea97-1c0c-482b-b205-e541c0df9728}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "IBKR_FILTER_TUNING_REFERENCE.md",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\IBKR_FILTER_TUNING_REFERENCE.md",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Strategy\\IBKR_FILTER_TUNING_REFERENCE.md",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\IBKR_FILTER_TUNING_REFERENCE.md",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Strategy\\IBKR_FILTER_TUNING_REFERENCE.md",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-02-24T14:29:58.15Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "appsettings.crypto.bitfinex.json",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\appsettings.crypto.bitfinex.json",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Exchange.Crypto\\appsettings.crypto.bitfinex.json",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\appsettings.crypto.bitfinex.json",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Exchange.Crypto\\appsettings.crypto.bitfinex.json",
+              "ViewState": "AgIAAAcAAAAAAAAAAAAYwBcAAAAnAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-02-15T13:56:55.458Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\appsettings.json",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.App\\appsettings.json",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\appsettings.json",
+              "RelativeToolTip": "src\\Denis.TradingEngine.App\\appsettings.json",
+              "ViewState": "AgIAAKkAAAAAAAAAAAAwwK8AAAAWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-02-19T14:24:33.731Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Program.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.App\\Program.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Program.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.App\\Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-19T14:24:32.358Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "PullbackInUptrendStrategy.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "ViewState": "AgIAAP0CAAAAAAAAAAAkwI8DAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-18T13:24:42.732Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "TradingSettings.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Trading\\TradingSettings.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.App\\Trading\\TradingSettings.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Trading\\TradingSettings.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.App\\Trading\\TradingSettings.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAG8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-19T22:19:46.367Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "TrendAnalysisSettings.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\Trend\\TrendAnalysisSettings.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Strategy\\Trend\\TrendAnalysisSettings.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\Trend\\TrendAnalysisSettings.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Strategy\\Trend\\TrendAnalysisSettings.cs",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAswAcAAAA7AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-20T11:43:05.037Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "CryptoExchangeTradingParams.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\Config\\CryptoExchangeTradingParams.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Exchange.Crypto\\Config\\CryptoExchangeTradingParams.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\Config\\CryptoExchangeTradingParams.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Exchange.Crypto\\Config\\CryptoExchangeTradingParams.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwAgAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-15T17:43:17.694Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "TradingOrchestrator.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "ViewState": "AgIAACoAAAAAAAAAAAAmwDcAAABJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-15T17:41:53.242Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "CryptoTradingOrchestrator.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\Trading\\CryptoTradingOrchestrator.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Exchange.Crypto\\Trading\\CryptoTradingOrchestrator.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\Trading\\CryptoTradingOrchestrator.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Exchange.Crypto\\Trading\\CryptoTradingOrchestrator.cs",
+              "ViewState": "AgIAAKsAAAAAAAAAAAAEwL0AAAAaAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-15T17:41:43.948Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "BitfinexTradingApi.cs",
+              "DocumentMoniker": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\Bitfinex\\BitfinexTradingApi.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Exchange.Crypto\\Bitfinex\\BitfinexTradingApi.cs",
+              "ToolTip": "C:\\Users\\Lenovo\\source\\repos\\Denis.TradingEngine\\src\\Denis.TradingEngine.Exchange.Crypto\\Bitfinex\\BitfinexTradingApi.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Exchange.Crypto\\Bitfinex\\BitfinexTradingApi.cs",
+              "ViewState": "AgIAAJkDAAAAAAAAAAAiwLkDAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-15T11:42:21.842Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

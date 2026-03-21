@@ -1,0 +1,780 @@
+{
+  "Defaults": {
+    "Enabled": true,
+    "AtrPeriod": 14,
+    "MinAtrFractionOfPrice": 1.5e-05,
+    "ActivityWindowSeconds": 60,
+    "MinTicksPerWindow": 20,
+    "MaxSpreadBps": 30.0,
+    "EmaFastPeriod": 20,
+    "EmaSlowPeriod": 50,
+    "MinPullbackBelowFastPct": 0.00014,
+    "MaxBelowSlowPct": 0.022,
+    "MinPullbackDepthPct": 0.0001,
+    "MinPullbackDurationSec": 6,
+    "MaxPullbackDurationSec": 240,
+    "BreakoutBufferPct": 0.00035,
+    "MinTimeBetweenSignalsSec": 45,
+    "DebugLogging": false,
+    "MicroFilterEnabled": true,
+    "MicroFilterMinSlope20Bps": -0.8,
+    "MicroFilterMinAtrFractionOfPrice": 1e-05,
+    "MicroFilterMaxSpreadBps": 22.0,
+    "MicroFilterMinTicksPerWindow": 55
+  },
+  "Symbols": [],
+  "Exchanges": {
+    "Kraken": {
+      "Defaults": {
+        "Enabled": true,
+        "AtrPeriod": 14,
+        "MinAtrFractionOfPrice": 1.457e-05,
+        "ActivityWindowSeconds": 60,
+        "MinTicksPerWindow": 25,
+        "MaxSpreadBps": 13.14,
+        "EmaFastPeriod": 20,
+        "EmaSlowPeriod": 50,
+        "MinPullbackBelowFastPct": 8.17e-05,
+        "MaxBelowSlowPct": 0.02,
+        "MinPullbackDurationSec": 10,
+        "MaxPullbackDurationSec": 300,
+        "BreakoutBufferPct": 0.000194,
+        "MinTimeBetweenSignalsSec": 172,
+        "DebugLogging": false,
+        "MicroFilterEnabled": true,
+        "MicroFilterMinSlope20Bps": -0.65,
+        "MicroFilterMinAtrFractionOfPrice": 1.286e-05,
+        "MicroFilterMaxSpreadBps": 11.77,
+        "MicroFilterMinTicksPerWindow": 34
+      },
+      "Symbols": [
+        {
+          "Symbol": "BTCUSD",
+          "Enabled": false,
+          "MinTicksPerWindow": 29,
+          "MaxSpreadBps": 11.21,
+          "MinPullbackBelowFastPct": 0.0001,
+          "BreakoutBufferPct": 0.000232
+        },
+        {
+          "Symbol": "ETHUSD",
+          "Enabled": true,
+          "MinTicksPerWindow": 25,
+          "MaxSpreadBps": 13.14,
+          "MinPullbackBelowFastPct": 8.17e-05,
+          "BreakoutBufferPct": 0.000194
+        },
+        {
+          "Symbol": "SOLUSD",
+          "Enabled": true,
+          "MinTicksPerWindow": 25,
+          "MaxSpreadBps": 13.14,
+          "MinPullbackBelowFastPct": 7.315e-05,
+          "BreakoutBufferPct": 0.000194
+        }
+      ]
+    },
+    "Bitfinex": {
+      "Defaults": {
+        "Enabled": true,
+        "AtrPeriod": 14,
+        "MinAtrFractionOfPrice": 1.4292e-05,
+        "ActivityWindowSeconds": 60,
+        "MinTicksPerWindow": 10,
+        "MaxSpreadBps": 9.57,
+        "EmaFastPeriod": 20,
+        "EmaSlowPeriod": 50,
+        "MinPullbackBelowFastPct": 2.9772e-05,
+        "MaxBelowSlowPct": 0.02,
+        "MinPullbackDurationSec": 4,
+        "MaxPullbackDurationSec": 300,
+        "BreakoutBufferPct": 8.4e-05,
+        "MinTimeBetweenSignalsSec": 63,
+        "DebugLogging": false,
+        "MicroFilterEnabled": true,
+        "MicroFilterMinSlope20Bps": -0.19,
+        "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+        "MicroFilterMaxSpreadBps": 8.118,
+        "MicroFilterMinTicksPerWindow": 15
+      },
+      "Symbols": [
+        {
+          "Symbol": "ETHUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 1500,
+          "MaxSpreadBps": 4.5,
+          "MinAtrFractionOfPrice": 1.786e-05,
+          "MinTicksPerWindow": 5,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 4.6,
+          "MicroFilterMinTicksPerWindow": 6
+        },
+        {
+          "Symbol": "BTCUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 1500,
+          "MaxSpreadBps": 3.5,
+          "MinAtrFractionOfPrice": 1.588e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05
+        },
+        {
+          "Symbol": "SOLUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 1500,
+          "MaxSpreadBps": 3.5,
+          "MinAtrFractionOfPrice": 1.588e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 6.0,
+          "MicroFilterMinTicksPerWindow": 6
+        },
+        {
+          "Symbol": "XRPUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 1500,
+          "MaxSpreadBps": 3.5,
+          "MinAtrFractionOfPrice": 1.588e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 6.0,
+          "MicroFilterMinTicksPerWindow": 6
+        },
+        {
+          "Symbol": "XAUTUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 600,
+          "MaxSpreadBps": 9.57,
+          "MinAtrFractionOfPrice": 1.588e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterMinTicksPerWindow": 6,
+          "MicroFilterMaxSpreadBps": 8.118
+        },
+        {
+          "Symbol": "XMRUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 300,
+          "MaxSpreadBps": 16.0,
+          "MinAtrFractionOfPrice": 1.588e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 14.0,
+          "MicroFilterMinTicksPerWindow": 4
+        },
+        {
+          "Symbol": "SUIUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 80,
+          "MaxSpreadBps": 12.0,
+          "MinAtrFractionOfPrice": 1.786e-05,
+          "MinTicksPerWindow": 2,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 10.0,
+          "MicroFilterMinTicksPerWindow": 3
+        },
+        {
+          "Symbol": "LTCUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 180,
+          "MaxSpreadBps": 12.0,
+          "MinAtrFractionOfPrice": 1.786e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 11.0,
+          "MicroFilterMinTicksPerWindow": 4
+        },
+        {
+          "Symbol": "ZECUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 600,
+          "MaxSpreadBps": 10.0,
+          "MinAtrFractionOfPrice": 1.786e-05,
+          "MinTicksPerWindow": 5,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 8.0,
+          "MicroFilterMinTicksPerWindow": 5
+        },
+        {
+          "Symbol": "ADAUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 180,
+          "MaxSpreadBps": 12.0,
+          "MinAtrFractionOfPrice": 1.786e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 10.0,
+          "MicroFilterMinTicksPerWindow": 3
+        },
+        {
+          "Symbol": "LINKUSDT",
+          "Enabled": true,
+          "TrendMinPoints": 150,
+          "MaxSpreadBps": 14.0,
+          "MinAtrFractionOfPrice": 1.786e-05,
+          "MinTicksPerWindow": 3,
+          "MinPullbackBelowFastPct": 3.308e-05,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.25,
+          "MicroFilterMinAtrFractionOfPrice": 4.05e-06,
+          "MicroFilterMaxSpreadBps": 14.0,
+          "MicroFilterMinTicksPerWindow": 3
+        },
+        {
+          "Symbol": "DOTUSDT",
+          "Enabled": true
+        }
+        
+      ]
+    },
+    "Deribit": {
+      "Defaults": {
+        "Enabled": true,
+        "AtrPeriod": 14,
+        "MinAtrFractionOfPrice": 5.15e-06,
+        "ActivityWindowSeconds": 60,
+        "MinTicksPerWindow": 40,
+        "MaxSpreadBps": 0.648,
+        "EmaFastPeriod": 20,
+        "EmaSlowPeriod": 50,
+        "MinPullbackBelowFastPct": 5.605e-05,
+        "MaxBelowSlowPct": 0.02,
+        "MinPullbackDurationSec": 10,
+        "MaxPullbackDurationSec": 300,
+        "BreakoutBufferPct": 0.000127,
+        "MinTimeBetweenSignalsSec": 141,
+        "DebugLogging": false,
+        "MicroFilterEnabled": true,
+        "MicroFilterMinSlope20Bps": -0.316,
+        "MicroFilterMinAtrFractionOfPrice": 8.58e-06,
+        "MicroFilterMaxSpreadBps": 0.568,
+        "MicroFilterMinTicksPerWindow": 49
+      },
+      "Symbols": [
+        {
+          "Symbol": "BTCUSD",
+          "Enabled": false,
+          "MaxSpreadBps": 0.298,
+          "MinTicksPerWindow": 47,
+          "MinPullbackBelowFastPct": 6.9e-05
+        },
+        {
+          "Symbol": "ETHUSD",
+          "Enabled": true,
+          "MaxSpreadBps": 0.648,
+          "MinTicksPerWindow": 40,
+          "MinPullbackBelowFastPct": 5.605e-05
+        },
+        {
+          "Symbol": "SOLUSD",
+          "Enabled": true,
+          "MaxSpreadBps": 0.648,
+          "MinTicksPerWindow": 40,
+          "MinPullbackBelowFastPct": 5.605e-05
+        }
+      ]
+    },
+    "Bybit": {
+      "Defaults": {
+        "Enabled": true,
+        "AtrPeriod": 14,
+        "MinAtrFractionOfPrice": 1e-05,
+        "ActivityWindowSeconds": 60,
+        "MinTicksPerWindow": 50,
+        "MaxSpreadBps": 10.0,
+        "EmaFastPeriod": 20,
+        "EmaSlowPeriod": 50,
+        "MinPullbackBelowFastPct": 5.5e-05,
+        "MaxBelowSlowPct": 0.02,
+        "MinPullbackDurationSec": 2,
+        "MaxPullbackDurationSec": 6,
+        "BreakoutBufferPct": 0.00018,
+        "MinTimeBetweenSignalsSec": 90,
+        "DebugLogging": false,
+        "MicroFilterEnabled": true,
+        "MicroFilterMinSlope20Bps": -0.6,
+        "MicroFilterMinAtrFractionOfPrice": 8e-06,
+        "MicroFilterMaxSpreadBps": 10.0,
+        "MicroFilterMinTicksPerWindow": 50
+      },
+      "Symbols": [
+        {
+          "Symbol": "BTCUSDT",
+          "Enabled": false
+        },
+        {
+          "Symbol": "ETHUSDT",
+          "Enabled": true,
+          "MinTicksPerWindow": 14,
+          "MaxSpreadBps": 14.0,
+          "MinPullbackBelowFastPct": 5.5e-05,
+          "BreakoutBufferPct": 0.00018
+        },
+        {
+          "Symbol": "SOLUSDT",
+          "Enabled": true,
+          "MinTicksPerWindow": 400,
+          "MaxSpreadBps": 5.0,
+          "MinPullbackBelowFastPct": 0.0012,
+          "MinPullbackDurationSec": 2,
+          "MaxPullbackDurationSec": 4,
+          "BreakoutBufferPct": 0.00018,
+          "MinTimeBetweenSignalsSec": 90,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.6,
+          "MicroFilterMinAtrFractionOfPrice": 8e-06,
+          "MicroFilterMaxSpreadBps": 5.0,
+          "MicroFilterMinTicksPerWindow": 400
+        }
+      ]
+    },
+    "IBKR": {
+      "Defaults": {
+        "Enabled": true,
+        "AtrPeriod": 14,
+        "MinAtrFractionOfPrice": 1.5e-05,
+        "ActivityWindowSeconds": 60,
+        "MinTicksPerWindow": 26,
+        "MaxSpreadBps": 24.0,
+        "EmaFastPeriod": 20,
+        "EmaSlowPeriod": 50,
+        "MinPullbackBelowFastPct": 0.00014,
+        "MaxBelowSlowPct": 0.022,
+        "MinPullbackDepthPct": 0.00013,
+        "MinPullbackDurationSec": 6,
+        "MaxPullbackDurationSec": 240,
+        "BreakoutBufferPct": 0.0004,
+        "MinTimeBetweenSignalsSec": 45,
+        "DebugLogging": false,
+        "MicroFilterEnabled": true,
+        "MicroFilterMinSlope20Bps": -0.5,
+        "MicroFilterMinAtrFractionOfPrice": 1e-05,
+        "MicroFilterMaxSpreadBps": 22.0,
+        "MicroFilterMinTicksPerWindow": 55
+      },
+      "Symbols": [
+        {
+          "Symbol": "NVDA",
+          "Enabled": true,
+          "MinPullbackDurationSec": 5,
+          "MaxPullbackDurationSec": 30,
+          "MinTimeBetweenSignalsSec": 90,
+          "MinTicksPerWindow": 12,
+          "MaxSpreadBps": 12.0,
+          "MinPullbackBelowFastPct": 4e-05,
+          "BreakoutBufferPct": 0.00015,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -1,
+          "MicroFilterMinAtrFractionOfPrice": 5e-06,
+          "MicroFilterMaxSpreadBps": 25,
+          "MicroFilterMinTicksPerWindow": 50
+        },
+        {
+          "Symbol": "AMD",
+          "Enabled": true
+        },
+        {
+          "Symbol": "QCOM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "TXN",
+          "Enabled": true
+        },
+        {
+          "Symbol": "INTC",
+          "Enabled": true
+        },
+        {
+          "Symbol": "NXPI",
+          "Enabled": true
+        },
+        {
+          "Symbol": "LRCX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MCHP",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MRVL",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ON",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ANET",
+          "Enabled": true
+        },
+        {
+          "Symbol": "DELL",
+          "Enabled": true
+        },
+        {
+          "Symbol": "CSCO",
+          "Enabled": true
+        },
+        {
+          "Symbol": "HPQ",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ARM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "GM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "CRM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ORCL",
+          "Enabled": true
+        },
+        {
+          "Symbol": "NOW",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PANW",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ZS",
+          "Enabled": true
+        },
+        {
+          "Symbol": "DDOG",
+          "Enabled": true
+        },
+        {
+          "Symbol": "NET",
+          "Enabled": true
+        },
+        {
+          "Symbol": "OKTA",
+          "Enabled": true
+        },
+        {
+          "Symbol": "TEAM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "AMZN",
+          "Enabled": true
+        },
+        {
+          "Symbol": "UBER",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ABNB",
+          "Enabled": true
+        },
+        {
+          "Symbol": "TGT",
+          "Enabled": true
+        },
+        {
+          "Symbol": "WMT",
+          "Enabled": true
+        },
+        {
+          "Symbol": "NFLX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "EA",
+          "Enabled": true
+        },
+        {
+          "Symbol": "TTWO",
+          "Enabled": true
+        },
+        {
+          "Symbol": "DRI",
+          "Enabled": true
+        },
+        {
+          "Symbol": "YUM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "SYY",
+          "Enabled": true
+        },
+        {
+          "Symbol": "KO",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PEP",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PG",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MDLZ",
+          "Enabled": true
+        },
+        {
+          "Symbol": "CL",
+          "Enabled": true
+        },
+        {
+          "Symbol": "KMB",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MO",
+          "Enabled": true
+        },
+        {
+          "Symbol": "KR",
+          "Enabled": true
+        },
+        {
+          "Symbol": "XOM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "CVX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "COP",
+          "Enabled": true
+        },
+        {
+          "Symbol": "EOG",
+          "Enabled": true
+        },
+        {
+          "Symbol": "OXY",
+          "Enabled": true
+        },
+        {
+          "Symbol": "SLB",
+          "Enabled": true
+        },
+        {
+          "Symbol": "HAL",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MPC",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PSX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "VLO",
+          "Enabled": true
+        },
+        {
+          "Symbol": "KMI",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BAC",
+          "Enabled": true,
+          "MicroFilterEnabled": true,
+          "MicroFilterMinSlope20Bps": -0.7,
+          "MicroFilterMinAtrFractionOfPrice": 1e-05,
+          "MicroFilterMaxSpreadBps": 20,
+          "MicroFilterMinTicksPerWindow": 65
+        },
+        {
+          "Symbol": "WFC",
+          "Enabled": true
+        },
+        {
+          "Symbol": "C",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MS",
+          "Enabled": true
+        },
+        {
+          "Symbol": "SCHW",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PYPL",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PGR",
+          "Enabled": true
+        },
+        {
+          "Symbol": "AIG",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MET",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PRU",
+          "Enabled": true
+        },
+        {
+          "Symbol": "USB",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BK",
+          "Enabled": true
+        },
+        {
+          "Symbol": "COF",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PNC",
+          "Enabled": true
+        },
+        {
+          "Symbol": "TFC",
+          "Enabled": true
+        },
+        {
+          "Symbol": "RTX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BA",
+          "Enabled": true
+        },
+        {
+          "Symbol": "HON",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MMM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "EMR",
+          "Enabled": true
+        },
+        {
+          "Symbol": "CSX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "UPS",
+          "Enabled": true
+        },
+        {
+          "Symbol": "WM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "RSG",
+          "Enabled": true
+        },
+        {
+          "Symbol": "FAST",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PAYX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "JNJ",
+          "Enabled": true
+        },
+        {
+          "Symbol": "PFE",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BMY",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ABBV",
+          "Enabled": true
+        },
+        {
+          "Symbol": "GILD",
+          "Enabled": true
+        },
+        {
+          "Symbol": "DHR",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BSX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "HUM",
+          "Enabled": true
+        },
+        {
+          "Symbol": "MDT",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BDX",
+          "Enabled": true
+        },
+        {
+          "Symbol": "EW",
+          "Enabled": true
+        },
+        {
+          "Symbol": "ZBH",
+          "Enabled": true
+        },
+        {
+          "Symbol": "BAX",
+          "Enabled": true
+        }
+      ]
+    }
+  }
+}

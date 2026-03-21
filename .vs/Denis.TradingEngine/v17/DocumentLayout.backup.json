@@ -1,0 +1,201 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "Z:\\RiderProjects\\Denis.TradingEngine\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.strategy\\pullback-config.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|solutionrelative:src\\denis.tradingengine.strategy\\pullback-config.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.strategy\\pullback\\pullbackinuptrendstrategy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4D93932B-5D41-4FCB-969A-6922C398A976}|src\\Denis.TradingEngine.Strategy\\Denis.TradingEngine.Strategy.csproj|solutionrelative:src\\denis.tradingengine.strategy\\pullback\\pullbackinuptrendstrategy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.app\\trading\\tradingorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|solutionrelative:src\\denis.tradingengine.app\\trading\\tradingorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.app\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{76D593DF-8BEF-415A-86A1-0A75E18EB845}|src\\Denis.TradingEngine.App\\Denis.TradingEngine.App.csproj|solutionrelative:src\\denis.tradingengine.app\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{12795689-F51E-484C-8126-7B757675E62A}|src\\Denis.TradingEngine.Core\\Denis.TradingEngine.Core.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.core\\trading\\ordertype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{12795689-F51E-484C-8126-7B757675E62A}|src\\Denis.TradingEngine.Core\\Denis.TradingEngine.Core.csproj|solutionrelative:src\\denis.tradingengine.core\\trading\\ordertype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{12795689-F51E-484C-8126-7B757675E62A}|src\\Denis.TradingEngine.Core\\Denis.TradingEngine.Core.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.core\\interfaces\\iorderservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{12795689-F51E-484C-8126-7B757675E62A}|src\\Denis.TradingEngine.Core\\Denis.TradingEngine.Core.csproj|solutionrelative:src\\denis.tradingengine.core\\interfaces\\iorderservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{12795689-F51E-484C-8126-7B757675E62A}|src\\Denis.TradingEngine.Core\\Denis.TradingEngine.Core.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.core\\orders\\orderrequest.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{12795689-F51E-484C-8126-7B757675E62A}|src\\Denis.TradingEngine.Core\\Denis.TradingEngine.Core.csproj|solutionrelative:src\\denis.tradingengine.core\\orders\\orderrequest.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{D78F9AE3-7CA2-4C31-A21D-5FD07E8982E5}|src\\Denis.TradingEngine.Broker.IBKR\\Denis.TradingEngine.Broker.IBKR.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.broker.ibkr\\realibkrclient.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{D78F9AE3-7CA2-4C31-A21D-5FD07E8982E5}|src\\Denis.TradingEngine.Broker.IBKR\\Denis.TradingEngine.Broker.IBKR.csproj|solutionrelative:src\\denis.tradingengine.broker.ibkr\\realibkrclient.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{02CD558A-D7C6-4780-A413-970E8872DFDD}|src\\Denis.TradingEngine.Data\\Denis.TradingEngine.Data.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.data\\repositories\\brokerorderrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{02CD558A-D7C6-4780-A413-970E8872DFDD}|src\\Denis.TradingEngine.Data\\Denis.TradingEngine.Data.csproj|solutionrelative:src\\denis.tradingengine.data\\repositories\\brokerorderrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{D78F9AE3-7CA2-4C31-A21D-5FD07E8982E5}|src\\Denis.TradingEngine.Broker.IBKR\\Denis.TradingEngine.Broker.IBKR.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.broker.ibkr\\ibkrorderservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{D78F9AE3-7CA2-4C31-A21D-5FD07E8982E5}|src\\Denis.TradingEngine.Broker.IBKR\\Denis.TradingEngine.Broker.IBKR.csproj|solutionrelative:src\\denis.tradingengine.broker.ibkr\\ibkrorderservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{17C9E553-8101-45CB-A851-CB3D7DDAC466}|src\\Denis.TradingEngine.Orders\\Denis.TradingEngine.Orders.csproj|z:\\riderprojects\\denis.tradingengine\\src\\denis.tradingengine.orders\\ordercoordinator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{17C9E553-8101-45CB-A851-CB3D7DDAC466}|src\\Denis.TradingEngine.Orders\\Denis.TradingEngine.Orders.csproj|solutionrelative:src\\denis.tradingengine.orders\\ordercoordinator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 2,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Program.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Program.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.App\\Program.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Program.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.App\\Program.cs",
+              "ViewState": "AgIAAC4BAAAAAAAAAAAAADcBAAB4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T20:58:24.275Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "PullbackInUptrendStrategy.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Strategy\\Pullback\\PullbackInUptrendStrategy.cs",
+              "ViewState": "AgIAAHABAAAAAAAAAAAYwJQBAAAEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-02T13:42:10.288Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "pullback-config.json",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\pullback-config.json",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Strategy\\pullback-config.json",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Strategy\\pullback-config.json",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Strategy\\pullback-config.json",
+              "ViewState": "AgIAAF4AAAAAAAAAAAAYwHgAAAAbAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-12-02T13:26:18.245Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "RealIbkrClient.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Broker.IBKR\\RealIbkrClient.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Broker.IBKR\\RealIbkrClient.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Broker.IBKR\\RealIbkrClient.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Broker.IBKR\\RealIbkrClient.cs",
+              "ViewState": "AgIAAIgAAAAAAAAAAAAiwJoAAABKAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:13:37.477Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "OrderCoordinator.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Orders\\OrderCoordinator.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Orders\\OrderCoordinator.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Orders\\OrderCoordinator.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Orders\\OrderCoordinator.cs",
+              "ViewState": "AgIAAHwAAAAAAAAAAAAYwKcAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:13:27.429Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "BrokerOrderRepository.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Data\\Repositories\\BrokerOrderRepository.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Data\\Repositories\\BrokerOrderRepository.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Data\\Repositories\\BrokerOrderRepository.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Data\\Repositories\\BrokerOrderRepository.cs",
+              "ViewState": "AgIAAG4AAAAAAAAAAAAkwLkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:13:15.087Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "TradingOrchestrator.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.App\\Trading\\TradingOrchestrator.cs",
+              "ViewState": "AgIAAKAJAAAAAAAAAAAiwLgJAAA4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:06:16.141Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "OrderRequest.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Core\\Orders\\OrderRequest.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Core\\Orders\\OrderRequest.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Core\\Orders\\OrderRequest.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Core\\Orders\\OrderRequest.cs",
+              "ViewState": "AgIAABIAAAAAAAAAAAAIwCAAAAAeAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:44:38.75Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "IOrderService.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Core\\Interfaces\\IOrderService.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Core\\Interfaces\\IOrderService.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Core\\Interfaces\\IOrderService.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Core\\Interfaces\\IOrderService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:46:57.975Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "IbkrOrderService.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Broker.IBKR\\IbkrOrderService.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Broker.IBKR\\IbkrOrderService.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Broker.IBKR\\IbkrOrderService.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Broker.IBKR\\IbkrOrderService.cs",
+              "ViewState": "AgIAAPMAAAAAAAAAAAD4vwABAAARAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:47:30.953Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "OrderType.cs",
+              "DocumentMoniker": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Core\\Trading\\OrderType.cs",
+              "RelativeDocumentMoniker": "src\\Denis.TradingEngine.Core\\Trading\\OrderType.cs",
+              "ToolTip": "Z:\\RiderProjects\\Denis.TradingEngine\\src\\Denis.TradingEngine.Core\\Trading\\OrderType.cs",
+              "RelativeToolTip": "src\\Denis.TradingEngine.Core\\Trading\\OrderType.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-01T19:53:23.942Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

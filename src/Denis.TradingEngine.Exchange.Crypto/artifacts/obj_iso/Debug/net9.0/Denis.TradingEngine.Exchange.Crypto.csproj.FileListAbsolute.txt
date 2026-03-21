@@ -1,0 +1,5 @@
+C:\Users\Lenovo\source\repos\Denis.TradingEngine\src\Denis.TradingEngine.Exchange.Crypto\artifacts\obj_iso\Debug\net9.0\Denis.TradingEngine.Exchange.Crypto.csproj.AssemblyReference.cache
+C:\Users\Lenovo\source\repos\Denis.TradingEngine\src\Denis.TradingEngine.Exchange.Crypto\artifacts\obj_iso\Debug\net9.0\Denis.TradingEngine.Exchange.Crypto.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Lenovo\source\repos\Denis.TradingEngine\src\Denis.TradingEngine.Exchange.Crypto\artifacts\obj_iso\Debug\net9.0\Denis.TradingEngine.Exchange.Crypto.AssemblyInfoInputs.cache
+C:\Users\Lenovo\source\repos\Denis.TradingEngine\src\Denis.TradingEngine.Exchange.Crypto\artifacts\obj_iso\Debug\net9.0\Denis.TradingEngine.Exchange.Crypto.AssemblyInfo.cs
+C:\Users\Lenovo\source\repos\Denis.TradingEngine\src\Denis.TradingEngine.Exchange.Crypto\artifacts\obj_iso\Debug\net9.0\Denis.TradingEngine.Exchange.Crypto.csproj.CoreCompileInputs.cache

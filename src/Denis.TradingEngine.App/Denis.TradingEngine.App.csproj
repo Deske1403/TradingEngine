@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\Denis.TradingEngine.Logging\Denis.TradingEngine.Logging.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Core\Denis.TradingEngine.Core.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.MetricsServer\Denis.TradingEngine.MetricsServer.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Strategy\Denis.TradingEngine.Strategy.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Risk\Denis.TradingEngine.Risk.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Orders\Denis.TradingEngine.Orders.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Data\Denis.TradingEngine.Data.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Broker.IBKR\Denis.TradingEngine.Broker.IBKR.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Exchange.Crypto\Denis.TradingEngine.Exchange.Crypto.csproj" />
+    <ProjectReference Include="..\Denis.TradingEngine.Simulation\Denis.TradingEngine.Simulation.csproj" />
+  </ItemGroup>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+
+	  <!-- Performance optimizations -->
+	  <ServerGarbageCollection>true</ServerGarbageCollection>
+	  <TieredPGO>true</TieredPGO>
+	  <PublishReadyToRun>true</PublishReadyToRun>
+
+	  <!-- Optional: manje memory fragmentation -->
+	  <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+	  
+  </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="CSharpAPI">
+            <HintPath>..\Denis.TradingEngine.Broker.IBKR\libs\CSharpAPI.dll</HintPath>
+            <Private>true</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.10" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="9.0.10" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.10" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="appsettings.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
+    <ProjectExtensions><VisualStudio><UserProperties appsettings_1json__JsonSchema="" /></VisualStudio></ProjectExtensions>
+</Project>
