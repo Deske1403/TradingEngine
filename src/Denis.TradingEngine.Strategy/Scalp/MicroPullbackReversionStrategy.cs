@@ -333,10 +333,20 @@ public sealed class MicroPullbackReversionStrategy : ITradingStrategy
             return;
         }
 
-        if (!confirmedReclaim)
+        string? reclaimMode = null;
+        if (earlyReclaim)
         {
-            LogSnapshot(symbol, st, now, "reclaim-block", mid, dislocationBps, normalizedDislocation, spreadBps, book.MinLiquidityUsd, book.Imbalance, book.MicropriceEdgeBps, book.BookAge.TotalMilliseconds, effectiveVolatilityBps, exhaustionCount, reclaimMomentumBps, earlyReclaim, false, null);
-            LogBlocked(symbol, st, now, "confirmed-reclaim-missing");
+            reclaimMode = "early";
+        }
+        else if (confirmedReclaim)
+        {
+            reclaimMode = "confirmed";
+        }
+
+        if (reclaimMode is null)
+        {
+            LogSnapshot(symbol, st, now, "reclaim-block", mid, dislocationBps, normalizedDislocation, spreadBps, book.MinLiquidityUsd, book.Imbalance, book.MicropriceEdgeBps, book.BookAge.TotalMilliseconds, effectiveVolatilityBps, exhaustionCount, reclaimMomentumBps, earlyReclaim, confirmedReclaim, null);
+            LogBlocked(symbol, st, now, "reclaim-missing");
             return;
         }
 
@@ -350,7 +360,7 @@ public sealed class MicroPullbackReversionStrategy : ITradingStrategy
         st.EntryImbalance = book.Imbalance;
         st.EntryMicropriceEdgeBps = book.MicropriceEdgeBps;
         st.EntryFairValueMid = st.FairValueMid;
-        st.EntryReclaimMode = "confirmed";
+        st.EntryReclaimMode = reclaimMode;
         st.MaxRealizedBps = ((q.Bid!.Value - entryPrice) / entryPrice) * 10000m;
         st.MinRealizedBps = st.MaxRealizedBps;
         st.BestExitPrice = q.Bid.Value;
@@ -366,7 +376,7 @@ public sealed class MicroPullbackReversionStrategy : ITradingStrategy
             ShouldEnter: true,
             Side: OrderSide.Buy,
             SuggestedLimitPrice: entryPrice,
-            Reason: $"mr-entry: normDislocation={normalizedDislocation:F2} dislocation={dislocationBps:F2}bps reclaim=confirmed",
+            Reason: $"mr-entry: normDislocation={normalizedDislocation:F2} dislocation={dislocationBps:F2}bps reclaim={reclaimMode}",
             TimestampUtc: now));
     }
 
