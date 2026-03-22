@@ -863,6 +863,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Loans: lifecycleSync.Loans,
             Trades: lifecycleSync.Trades,
             InterestEntries: lifecycleSync.InterestEntries,
+            InterestAllocations: lifecycleSync.InterestAllocations,
+            CapitalEvents: lifecycleSync.CapitalEvents,
             RuntimeHealth: runtimeHealth,
             ReconciliationLog: lifecycleSync.ReconciliationLog);
     }
@@ -926,6 +928,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         var loanRows = BuildLoanStateRecords(activeLoans, loanHistory);
         var tradeRows = BuildTradeRecords(tradeHistory, creditRows, loanRows);
         var interestRows = BuildInterestLedgerRecords(ledgerEntries, tradeRows, creditRows, loanRows);
+        var interestAllocations = BuildInterestAllocations(interestRows, tradeRows, creditRows, loanRows);
+        var capitalEvents = BuildCapitalEvents(creditRows, loanRows, tradeRows, interestAllocations);
         var completedUtc = DateTime.UtcNow;
 
         _lastLifecycleSyncUtc = completedUtc;
@@ -936,6 +940,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Loans: loanRows,
             Trades: tradeRows,
             InterestEntries: interestRows,
+            InterestAllocations: interestAllocations,
+            CapitalEvents: capitalEvents,
             ReconciliationLog: BuildLifecycleReconciliationLog(
                 startedUtc,
                 completedUtc,
@@ -943,7 +949,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 creditRows,
                 loanRows,
                 tradeRows,
-                interestRows));
+                interestRows,
+                interestAllocations,
+                capitalEvents));
     }
 
     private IReadOnlyList<FundingCreditStateRecord> BuildCreditStateRecords(
@@ -1093,6 +1101,444 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ToArray();
     }
 
+    private IReadOnlyList<FundingInterestAllocationRecord> BuildInterestAllocations(
+        IReadOnlyList<FundingInterestLedgerRecord> interestEntries,
+        IReadOnlyList<FundingTradeRecord> trades,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans)
+    {
+        var allocations = new List<FundingInterestAllocationRecord>(interestEntries.Count * 2);
+
+        foreach (var entry in interestEntries)
+        {
+            var entryAllocations = BuildInterestAllocationsForEntry(entry, trades, credits, loans);
+            if (entryAllocations.Count == 0)
+                continue;
+
+            allocations.AddRange(entryAllocations);
+        }
+
+        return allocations
+            .OrderByDescending(static allocation => allocation.Utc)
+            .ThenBy(static allocation => allocation.AllocationKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private IReadOnlyList<FundingInterestAllocationRecord> BuildInterestAllocationsForEntry(
+        FundingInterestLedgerRecord entry,
+        IReadOnlyList<FundingTradeRecord> trades,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans)
+    {
+        if (entry.CreditId.HasValue)
+        {
+            var tradeId = ResolveTradeIdForLifecycle(
+                explicitTradeId: entry.FundingTradeId,
+                symbol: entry.Symbol,
+                eventUtc: entry.Utc,
+                creditId: entry.CreditId,
+                loanId: null,
+                trades: trades);
+            return new[]
+            {
+                CreateInterestAllocationRecord(
+                    entry,
+                    allocationKey: $"ledger:{entry.LedgerId}:credit:{entry.CreditId.Value}",
+                    creditId: entry.CreditId,
+                    loanId: null,
+                    fundingTradeId: tradeId,
+                    fraction: 1m,
+                    method: "direct_credit_match",
+                    confidence: "high")
+            };
+        }
+
+        if (entry.LoanId.HasValue)
+        {
+            var tradeId = ResolveTradeIdForLifecycle(
+                explicitTradeId: entry.FundingTradeId,
+                symbol: entry.Symbol,
+                eventUtc: entry.Utc,
+                creditId: null,
+                loanId: entry.LoanId,
+                trades: trades);
+            return new[]
+            {
+                CreateInterestAllocationRecord(
+                    entry,
+                    allocationKey: $"ledger:{entry.LedgerId}:loan:{entry.LoanId.Value}",
+                    creditId: null,
+                    loanId: entry.LoanId,
+                    fundingTradeId: tradeId,
+                    fraction: 1m,
+                    method: "direct_loan_match",
+                    confidence: "high")
+            };
+        }
+
+        var candidates = BuildInterestAllocationCandidates(entry, trades, credits, loans);
+        if (candidates.Count == 0)
+        {
+            if (entry.FundingTradeId.HasValue)
+            {
+                return new[]
+                {
+                    CreateInterestAllocationRecord(
+                        entry,
+                        allocationKey: $"ledger:{entry.LedgerId}:trade:{entry.FundingTradeId.Value}",
+                        creditId: null,
+                        loanId: null,
+                        fundingTradeId: entry.FundingTradeId,
+                        fraction: 1m,
+                        method: "trade_only_match",
+                        confidence: "low")
+                };
+            }
+
+            return Array.Empty<FundingInterestAllocationRecord>();
+        }
+
+        if (candidates.Count == 1)
+        {
+            var candidate = candidates[0];
+            return new[]
+            {
+                CreateInterestAllocationRecord(
+                    entry,
+                    allocationKey: candidate.Kind == "credit"
+                        ? $"ledger:{entry.LedgerId}:credit:{candidate.LifecycleId}"
+                        : $"ledger:{entry.LedgerId}:loan:{candidate.LifecycleId}",
+                    creditId: candidate.Kind == "credit" ? candidate.LifecycleId : null,
+                    loanId: candidate.Kind == "loan" ? candidate.LifecycleId : null,
+                    fundingTradeId: candidate.FundingTradeId,
+                    fraction: 1m,
+                    method: candidate.Kind == "credit" ? "single_credit_window_match" : "single_loan_window_match",
+                    confidence: "high")
+            };
+        }
+
+        var totalWeight = candidates.Sum(static candidate => candidate.Weight);
+        var safeTotalWeight = totalWeight <= 0m ? candidates.Count : totalWeight;
+        var lastIndex = candidates.Count - 1;
+        var allocatedFraction = 0m;
+        var rows = new List<FundingInterestAllocationRecord>(candidates.Count);
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            var fraction = i == lastIndex
+                ? 1m - allocatedFraction
+                : Math.Round(candidate.Weight / safeTotalWeight, 12, MidpointRounding.AwayFromZero);
+
+            if (fraction < 0m)
+                fraction = 0m;
+
+            allocatedFraction += fraction;
+            rows.Add(CreateInterestAllocationRecord(
+                entry,
+                allocationKey: candidate.Kind == "credit"
+                    ? $"ledger:{entry.LedgerId}:credit:{candidate.LifecycleId}"
+                    : $"ledger:{entry.LedgerId}:loan:{candidate.LifecycleId}",
+                creditId: candidate.Kind == "credit" ? candidate.LifecycleId : null,
+                loanId: candidate.Kind == "loan" ? candidate.LifecycleId : null,
+                fundingTradeId: candidate.FundingTradeId,
+                fraction: fraction,
+                method: "pro_rata_open_amount",
+                confidence: "medium"));
+        }
+
+        return rows;
+    }
+
+    private IReadOnlyList<FundingLifecycleAllocationCandidate> BuildInterestAllocationCandidates(
+        FundingInterestLedgerRecord entry,
+        IReadOnlyList<FundingTradeRecord> trades,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans)
+    {
+        var symbol = string.IsNullOrWhiteSpace(entry.Symbol) ? CurrencyToFundingSymbol(entry.Currency) : entry.Symbol;
+        if (string.IsNullOrWhiteSpace(symbol))
+            return Array.Empty<FundingLifecycleAllocationCandidate>();
+
+        var creditCandidates = credits
+            .Where(credit =>
+                string.Equals(credit.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+                IsLifecycleRecordRelevantAt(credit.CreatedUtc, credit.OpenedUtc, credit.ClosedUtc, entry.Utc))
+            .Select(credit => new FundingLifecycleAllocationCandidate(
+                Kind: "credit",
+                LifecycleId: credit.CreditId,
+                Symbol: credit.Symbol,
+                Weight: Math.Abs(credit.OriginalAmount ?? credit.Amount),
+                FundingTradeId: ResolveTradeIdForLifecycle(
+                    explicitTradeId: entry.FundingTradeId,
+                    symbol: credit.Symbol,
+                    eventUtc: entry.Utc,
+                    creditId: credit.CreditId,
+                    loanId: null,
+                    trades: trades),
+                OpenedUtc: credit.OpenedUtc ?? credit.CreatedUtc,
+                ClosedUtc: credit.ClosedUtc))
+            .ToArray();
+
+        var loanCandidates = loans
+            .Where(loan =>
+                string.Equals(loan.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+                IsLifecycleRecordRelevantAt(loan.CreatedUtc, loan.OpenedUtc, loan.ClosedUtc, entry.Utc))
+            .Select(loan => new FundingLifecycleAllocationCandidate(
+                Kind: "loan",
+                LifecycleId: loan.LoanId,
+                Symbol: loan.Symbol,
+                Weight: Math.Abs(loan.OriginalAmount ?? loan.Amount),
+                FundingTradeId: ResolveTradeIdForLifecycle(
+                    explicitTradeId: entry.FundingTradeId,
+                    symbol: loan.Symbol,
+                    eventUtc: entry.Utc,
+                    creditId: null,
+                    loanId: loan.LoanId,
+                    trades: trades),
+                OpenedUtc: loan.OpenedUtc ?? loan.CreatedUtc,
+                ClosedUtc: loan.ClosedUtc))
+            .ToArray();
+
+        return creditCandidates
+            .Concat(loanCandidates)
+            .OrderByDescending(static candidate => candidate.OpenedUtc ?? DateTime.MinValue)
+            .ThenBy(static candidate => candidate.Kind, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static candidate => candidate.LifecycleId)
+            .ToArray();
+    }
+
+    private FundingInterestAllocationRecord CreateInterestAllocationRecord(
+        FundingInterestLedgerRecord entry,
+        string allocationKey,
+        long? creditId,
+        long? loanId,
+        long? fundingTradeId,
+        decimal fraction,
+        string method,
+        string confidence)
+    {
+        var normalizedFraction = Math.Clamp(fraction, 0m, 1m);
+        var gross = Math.Round(entry.GrossInterest * normalizedFraction, 12, MidpointRounding.AwayFromZero);
+        var fee = Math.Round(entry.FeeAmount * normalizedFraction, 12, MidpointRounding.AwayFromZero);
+        var net = Math.Round(entry.NetInterest * normalizedFraction, 12, MidpointRounding.AwayFromZero);
+
+        return new FundingInterestAllocationRecord(
+            Utc: entry.Utc,
+            Exchange: entry.Exchange,
+            AllocationKey: allocationKey,
+            LedgerId: entry.LedgerId,
+            Currency: entry.Currency,
+            Symbol: entry.Symbol,
+            CreditId: creditId,
+            LoanId: loanId,
+            FundingTradeId: fundingTradeId,
+            AllocatedGrossInterest: gross,
+            AllocatedFeeAmount: fee,
+            AllocatedNetInterest: net,
+            AllocationFraction: normalizedFraction,
+            AllocationMethod: method,
+            Confidence: confidence,
+            Metadata: new
+            {
+                entry.EntryType,
+                entry.Description,
+                entry.BalanceAfter,
+                entry.RawAmount
+            });
+    }
+
+    private IReadOnlyList<FundingCapitalEventRecord> BuildCapitalEvents(
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans,
+        IReadOnlyList<FundingTradeRecord> trades,
+        IReadOnlyList<FundingInterestAllocationRecord> interestAllocations)
+    {
+        var events = new Dictionary<string, FundingCapitalEventRecord>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var credit in credits)
+        {
+            var principalAmount = GetLifecyclePrincipalAmount(credit.OriginalAmount, credit.Amount);
+            var eventUtc = credit.OpenedUtc ?? credit.CreatedUtc;
+            if (eventUtc.HasValue && principalAmount > 0m)
+            {
+                var tradeId = ResolveTradeIdForLifecycle(
+                    explicitTradeId: null,
+                    symbol: credit.Symbol,
+                    eventUtc: eventUtc.Value,
+                    creditId: credit.CreditId,
+                    loanId: null,
+                    trades: trades);
+                var row = new FundingCapitalEventRecord(
+                    Utc: eventUtc.Value,
+                    Exchange: "bitfinex",
+                    EventKey: $"credit:{credit.CreditId}:principal_deployed",
+                    Symbol: credit.Symbol,
+                    Currency: FundingSymbolToCurrency(credit.Symbol),
+                    WalletType: "funding",
+                    EventType: "principal_deployed",
+                    CreditId: credit.CreditId,
+                    LoanId: null,
+                    FundingTradeId: tradeId,
+                    Amount: principalAmount,
+                    SourceType: "credit",
+                    Description: "Principal deployed into funding credit.",
+                    Metadata: new
+                    {
+                        credit.Status,
+                        credit.CreatedUtc,
+                        credit.OpenedUtc,
+                        credit.UpdatedUtc
+                    });
+
+                events[row.EventKey] = row;
+            }
+
+            if (credit.ClosedUtc.HasValue && principalAmount > 0m)
+            {
+                var tradeId = ResolveTradeIdForLifecycle(
+                    explicitTradeId: null,
+                    symbol: credit.Symbol,
+                    eventUtc: credit.ClosedUtc.Value,
+                    creditId: credit.CreditId,
+                    loanId: null,
+                    trades: trades);
+                var row = new FundingCapitalEventRecord(
+                    Utc: credit.ClosedUtc.Value,
+                    Exchange: "bitfinex",
+                    EventKey: $"credit:{credit.CreditId}:principal_returned",
+                    Symbol: credit.Symbol,
+                    Currency: FundingSymbolToCurrency(credit.Symbol),
+                    WalletType: "funding",
+                    EventType: "principal_returned",
+                    CreditId: credit.CreditId,
+                    LoanId: null,
+                    FundingTradeId: tradeId,
+                    Amount: principalAmount,
+                    SourceType: "credit",
+                    Description: "Principal returned from funding credit.",
+                    Metadata: new
+                    {
+                        credit.Status,
+                        credit.ClosedUtc,
+                        credit.UpdatedUtc
+                    });
+
+                events[row.EventKey] = row;
+            }
+        }
+
+        foreach (var loan in loans)
+        {
+            var principalAmount = GetLifecyclePrincipalAmount(loan.OriginalAmount, loan.Amount);
+            var eventUtc = loan.OpenedUtc ?? loan.CreatedUtc;
+            if (eventUtc.HasValue && principalAmount > 0m)
+            {
+                var tradeId = ResolveTradeIdForLifecycle(
+                    explicitTradeId: null,
+                    symbol: loan.Symbol,
+                    eventUtc: eventUtc.Value,
+                    creditId: null,
+                    loanId: loan.LoanId,
+                    trades: trades);
+                var row = new FundingCapitalEventRecord(
+                    Utc: eventUtc.Value,
+                    Exchange: "bitfinex",
+                    EventKey: $"loan:{loan.LoanId}:principal_deployed",
+                    Symbol: loan.Symbol,
+                    Currency: FundingSymbolToCurrency(loan.Symbol),
+                    WalletType: "funding",
+                    EventType: "principal_deployed",
+                    CreditId: null,
+                    LoanId: loan.LoanId,
+                    FundingTradeId: tradeId,
+                    Amount: principalAmount,
+                    SourceType: "loan",
+                    Description: "Principal deployed into funding loan.",
+                    Metadata: new
+                    {
+                        loan.Status,
+                        loan.CreatedUtc,
+                        loan.OpenedUtc,
+                        loan.UpdatedUtc
+                    });
+
+                events[row.EventKey] = row;
+            }
+
+            if (loan.ClosedUtc.HasValue && principalAmount > 0m)
+            {
+                var tradeId = ResolveTradeIdForLifecycle(
+                    explicitTradeId: null,
+                    symbol: loan.Symbol,
+                    eventUtc: loan.ClosedUtc.Value,
+                    creditId: null,
+                    loanId: loan.LoanId,
+                    trades: trades);
+                var row = new FundingCapitalEventRecord(
+                    Utc: loan.ClosedUtc.Value,
+                    Exchange: "bitfinex",
+                    EventKey: $"loan:{loan.LoanId}:principal_returned",
+                    Symbol: loan.Symbol,
+                    Currency: FundingSymbolToCurrency(loan.Symbol),
+                    WalletType: "funding",
+                    EventType: "principal_returned",
+                    CreditId: null,
+                    LoanId: loan.LoanId,
+                    FundingTradeId: tradeId,
+                    Amount: principalAmount,
+                    SourceType: "loan",
+                    Description: "Principal returned from funding loan.",
+                    Metadata: new
+                    {
+                        loan.Status,
+                        loan.ClosedUtc,
+                        loan.UpdatedUtc
+                    });
+
+                events[row.EventKey] = row;
+            }
+        }
+
+        foreach (var allocation in interestAllocations)
+        {
+            var amount = allocation.AllocatedNetInterest;
+            if (amount == 0m)
+                continue;
+
+            var row = new FundingCapitalEventRecord(
+                Utc: allocation.Utc,
+                Exchange: allocation.Exchange,
+                EventKey: $"interest:{allocation.AllocationKey}",
+                Symbol: allocation.Symbol,
+                Currency: allocation.Currency,
+                WalletType: "funding",
+                EventType: "interest_paid",
+                CreditId: allocation.CreditId,
+                LoanId: allocation.LoanId,
+                FundingTradeId: allocation.FundingTradeId,
+                Amount: amount,
+                SourceType: "interest_allocation",
+                Description: "Funding interest payment allocated to lifecycle.",
+                Metadata: new
+                {
+                    allocation.LedgerId,
+                    allocation.AllocationMethod,
+                    allocation.Confidence,
+                    allocation.AllocatedGrossInterest,
+                    allocation.AllocatedFeeAmount,
+                    allocation.AllocationFraction
+                });
+
+            events[row.EventKey] = row;
+        }
+
+        return events.Values
+            .OrderByDescending(static row => row.Utc)
+            .ThenBy(static row => row.EventKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     private FundingCreditStateRecord ToCreditStateRecord(FundingCreditInfo credit)
     {
         var closedUtc = IsClosedLifecycleStatus(credit.Status)
@@ -1166,30 +1612,74 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingCreditStateRecord> credits,
         IReadOnlyList<FundingLoanStateRecord> loans,
         IReadOnlyList<FundingTradeRecord> trades,
-        IReadOnlyList<FundingInterestLedgerRecord> interestEntries)
+        IReadOnlyList<FundingInterestLedgerRecord> interestEntries,
+        IReadOnlyList<FundingInterestAllocationRecord> interestAllocations,
+        IReadOnlyList<FundingCapitalEventRecord> capitalEvents)
     {
         var unlinkedTrades = trades.Count(trade => !trade.CreditId.HasValue && !trade.LoanId.HasValue);
-        var unlinkedInterest = interestEntries.Count(entry =>
-            !entry.CreditId.HasValue &&
-            !entry.LoanId.HasValue &&
-            !entry.FundingTradeId.HasValue);
+        var allocationLookup = interestAllocations
+            .GroupBy(static allocation => allocation.LedgerId)
+            .ToDictionary(static g => g.Key, static g => g.ToArray());
+
+        var unresolvedInterest = interestEntries.Count(entry =>
+        {
+            if (!allocationLookup.TryGetValue(entry.LedgerId, out var allocations) || allocations.Length == 0)
+                return true;
+
+            return allocations.All(allocation =>
+                !allocation.CreditId.HasValue &&
+                !allocation.LoanId.HasValue &&
+                !allocation.FundingTradeId.HasValue);
+        });
 
         return new FundingReconciliationLogRecord(
             StartedUtc: startedUtc,
             CompletedUtc: completedUtc,
             Exchange: "bitfinex",
             Symbol: null,
-            MismatchCount: unlinkedTrades + unlinkedInterest,
+            MismatchCount: unlinkedTrades + unresolvedInterest,
             CorrectedCount: 0,
-            Severity: (unlinkedTrades + unlinkedInterest) == 0 ? "info" : "warning",
-            Summary: $"symbols={string.Join(",", preferredSymbols)} credits={credits.Count} loans={loans.Count} trades={trades.Count} interest={interestEntries.Count} unlinkedTrades={unlinkedTrades} unlinkedInterest={unlinkedInterest}",
+            Severity: (unlinkedTrades + unresolvedInterest) == 0 ? "info" : "warning",
+            Summary: $"symbols={string.Join(",", preferredSymbols)} credits={credits.Count} loans={loans.Count} trades={trades.Count} interest={interestEntries.Count} allocations={interestAllocations.Count} capitalEvents={capitalEvents.Count} unlinkedTrades={unlinkedTrades} unresolvedInterest={unresolvedInterest}",
             Metadata: new
             {
                 ActiveCredits = credits.Count(credit => !IsClosedLifecycleStatus(credit.Status)),
                 ClosedCredits = credits.Count(credit => IsClosedLifecycleStatus(credit.Status)),
                 ActiveLoans = loans.Count(loan => !IsClosedLifecycleStatus(loan.Status)),
-                ClosedLoans = loans.Count(loan => IsClosedLifecycleStatus(loan.Status))
+                ClosedLoans = loans.Count(loan => IsClosedLifecycleStatus(loan.Status)),
+                InterestLedgersWithAllocations = allocationLookup.Count
             });
+    }
+
+    private static long? ResolveTradeIdForLifecycle(
+        long? explicitTradeId,
+        string? symbol,
+        DateTime eventUtc,
+        long? creditId,
+        long? loanId,
+        IReadOnlyList<FundingTradeRecord> trades)
+    {
+        if (explicitTradeId.HasValue)
+            return explicitTradeId;
+
+        return trades
+            .Where(trade =>
+                (!creditId.HasValue || trade.CreditId == creditId) &&
+                (!loanId.HasValue || trade.LoanId == loanId) &&
+                (string.IsNullOrWhiteSpace(symbol) || string.Equals(trade.Symbol, symbol, StringComparison.OrdinalIgnoreCase)) &&
+                trade.Utc <= eventUtc &&
+                trade.Utc >= eventUtc.AddDays(-7))
+            .OrderByDescending(static trade => trade.Utc)
+            .Select(static trade => (long?)trade.FundingTradeId)
+            .FirstOrDefault();
+    }
+
+    private static decimal GetLifecyclePrincipalAmount(decimal? originalAmount, decimal amount)
+    {
+        if (originalAmount.HasValue && Math.Abs(originalAmount.Value) > 0.00000001m)
+            return Math.Abs(originalAmount.Value);
+
+        return Math.Abs(amount);
     }
 
     private FundingWalletSnapshotRecord CreateWalletSnapshotRecord(FundingWalletBalance wallet, string source)
@@ -1988,12 +2478,23 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal LendableBalance,
         FundingOfferRequest Request);
 
+    private sealed record FundingLifecycleAllocationCandidate(
+        string Kind,
+        long LifecycleId,
+        string Symbol,
+        decimal Weight,
+        long? FundingTradeId,
+        DateTime? OpenedUtc,
+        DateTime? ClosedUtc);
+
     private sealed record FundingLifecycleSyncResult(
         DateTime? SyncedUtc,
         IReadOnlyList<FundingCreditStateRecord> Credits,
         IReadOnlyList<FundingLoanStateRecord> Loans,
         IReadOnlyList<FundingTradeRecord> Trades,
         IReadOnlyList<FundingInterestLedgerRecord> InterestEntries,
+        IReadOnlyList<FundingInterestAllocationRecord> InterestAllocations,
+        IReadOnlyList<FundingCapitalEventRecord> CapitalEvents,
         FundingReconciliationLogRecord? ReconciliationLog)
     {
         public static FundingLifecycleSyncResult Empty { get; } = new(
@@ -2002,6 +2503,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Loans: Array.Empty<FundingLoanStateRecord>(),
             Trades: Array.Empty<FundingTradeRecord>(),
             InterestEntries: Array.Empty<FundingInterestLedgerRecord>(),
+            InterestAllocations: Array.Empty<FundingInterestAllocationRecord>(),
+            CapitalEvents: Array.Empty<FundingCapitalEventRecord>(),
             ReconciliationLog: null);
     }
 }

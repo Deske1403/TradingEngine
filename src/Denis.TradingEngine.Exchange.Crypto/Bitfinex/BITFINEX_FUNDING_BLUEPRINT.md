@@ -38,9 +38,14 @@ What is now also implemented in code and schema, pending next runtime verificati
   - `funding_loans`
   - `funding_trades`
   - `funding_interest_ledger`
+  - `funding_interest_allocations`
+  - `funding_capital_events`
   - `funding_reconciliation_log`
+- joined reporting view:
+  - `v_funding_book`
 - wallet delta classification metadata for funding wallet snapshots
 - unique `ledger_id`-based funding payment deduplication
+- normalized principal/interest business events layered on top of raw exchange truth
 
 This means the basic funding runtime is already real and working.
 
@@ -299,6 +304,7 @@ What still needs to be proven in runtime:
 - first full post-return sync proving credits / trades / interest rows land correctly
 - validation that ledger entries and wallet-return behavior line up over a real cycle
 - validation of link quality when multiple same-currency funding chunks overlap
+- validation that `funding_interest_allocations`, `funding_capital_events`, and `v_funding_book` stay coherent over consecutive real returns
 
 Until that is confirmed, we have a very strong funding book implementation, but not yet a fully verified funding book.
 
@@ -321,6 +327,13 @@ Goal:
 Status:
 
 - implemented in code and DB schema
+- raw lifecycle truth now persists into:
+  - `funding_credits`
+  - `funding_loans`
+  - `funding_trades`
+  - `funding_interest_ledger`
+  - `funding_interest_allocations`
+  - `funding_capital_events`
 - next task is live verification after restart and real return cycles
 
 ### Step 2. Build the Funding Book View
@@ -337,6 +350,25 @@ Create linked visibility for:
 Goal:
 
 - one clear story for every funding chunk
+
+Status:
+
+- implemented in schema as `v_funding_book`
+- next task is runtime validation against real post-return cycles
+
+## Current Validation Window
+
+The remaining live returns scheduled for Sunday, March 22, 2026 are ideal for validating the new accounting layer without changing engine behavior:
+
+- `USDt` chunk expected around `2026-03-22 21:30:32`
+- `USD` chunk expected around `2026-03-22 22:10:32`
+
+These returns should be used to confirm:
+
+- `principal_returned` events
+- `interest_paid` allocations
+- correct updates in `v_funding_book`
+- continued reserve-based blocking of auto-reinvestment
 
 ### Step 3. Keep Reinvestment Simple
 

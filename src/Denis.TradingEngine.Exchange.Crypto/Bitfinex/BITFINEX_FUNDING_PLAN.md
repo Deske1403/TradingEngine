@@ -846,6 +846,14 @@ Added on the dedicated funding persistence side:
 - `funding_interest_ledger`
 - `funding_reconciliation_log`
 
+Added in the funding book slice:
+
+- `funding_interest_allocations`
+- `funding_capital_events`
+- joined lifecycle view `v_funding_book`
+- normalized principal deployment / principal return / interest payment events
+- allocation of raw funding payment ledger rows across concrete credit / loan lifecycles when direct 1:1 linkage is not available
+
 Schema improvement added:
 
 - `funding_interest_ledger` now has:
@@ -859,11 +867,48 @@ Schema improvement added:
 Migration added and applied locally:
 
 - `2026-03-22_enrich_funding_interest_ledger.sql`
+- `2026-03-22_add_funding_book_tables.sql`
 
 Important honesty note:
 
 - this slice compiles and the local DB schema is aligned
 - it still needs the next app restart and real runtime cycles to prove the end-to-end lifecycle writes under live conditions
+- the remaining live returns on `2026-03-22 21:30:32` (`USDt`) and `2026-03-22 22:10:32` (`USD`) are a very good validation window for the new funding-book layer
+
+## Implemented on 2026-03-22 (Funding Book Layer)
+
+The funding lifecycle now has a dedicated normalized accounting layer on top of raw exchange truth.
+
+New dedicated DB objects:
+
+- `funding_interest_allocations`
+- `funding_capital_events`
+- `v_funding_book`
+
+What they are for:
+
+- `funding_interest_allocations`
+  - splits raw Bitfinex funding payment ledger rows across one or more matching funding lifecycles
+  - supports both direct 1:1 matching and pro-rata matching when several same-currency chunks overlap
+- `funding_capital_events`
+  - stores normalized business events:
+    - `principal_deployed`
+    - `principal_returned`
+    - `interest_paid`
+- `v_funding_book`
+  - joins credits / loans / trades / interest allocations / capital events into one lifecycle-oriented reporting view
+
+Implementation intent:
+
+- keep raw exchange truth intact
+- add a second, accounting-friendly layer above it
+- make later reporting / Discord / strategy logic read from normalized book state instead of guessing from wallet deltas alone
+
+Important operational note:
+
+- no new trading or reinvest behavior was added in this slice
+- funding placement logic stays conservative and unchanged
+- the new slice is purely persistence, linkage, and accounting
 
 ## Practical test recipe
 

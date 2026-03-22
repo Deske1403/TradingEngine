@@ -33,6 +33,8 @@ public sealed class BitfinexFundingRepository
             batch.Loans.Count == 0 &&
             batch.Trades.Count == 0 &&
             batch.InterestEntries.Count == 0 &&
+            batch.InterestAllocations.Count == 0 &&
+            batch.CapitalEvents.Count == 0 &&
             batch.RuntimeHealth is null &&
             batch.ReconciliationLog is null)
         {
@@ -53,6 +55,8 @@ public sealed class BitfinexFundingRepository
             await UpsertLoansCoreAsync(conn, tx, batch.Loans, ct).ConfigureAwait(false);
             await UpsertTradesCoreAsync(conn, tx, batch.Trades, ct).ConfigureAwait(false);
             await UpsertInterestLedgerCoreAsync(conn, tx, batch.InterestEntries, ct).ConfigureAwait(false);
+            await UpsertInterestAllocationsCoreAsync(conn, tx, batch.InterestAllocations, ct).ConfigureAwait(false);
+            await UpsertCapitalEventsCoreAsync(conn, tx, batch.CapitalEvents, ct).ConfigureAwait(false);
 
             if (batch.RuntimeHealth is not null)
             {
@@ -633,6 +637,122 @@ VALUES
         }, transaction, cancellationToken: ct)).ConfigureAwait(false);
     }
 
+    private static async Task UpsertInterestAllocationsCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingInterestAllocationRecord> allocations,
+        CancellationToken ct)
+    {
+        if (allocations.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + allocations.Count * 360);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_interest_allocations
+(utc, exchange, allocation_key, ledger_id, currency, symbol, credit_id, loan_id, funding_trade_id, allocated_gross_interest, allocated_fee_amount, allocated_net_interest, allocation_fraction, allocation_method, confidence, metadata)
+VALUES ");
+
+        for (int i = 0; i < allocations.Count; i++)
+        {
+            var item = allocations[i];
+            sql.Append($"(@Utc{i}, @Exchange{i}, @AllocationKey{i}, @LedgerId{i}, @Currency{i}, @Symbol{i}, @CreditId{i}, @LoanId{i}, @FundingTradeId{i}, @AllocatedGrossInterest{i}, @AllocatedFeeAmount{i}, @AllocatedNetInterest{i}, @AllocationFraction{i}, @AllocationMethod{i}, @Confidence{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Utc{i}", item.Utc);
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"AllocationKey{i}", item.AllocationKey);
+            parameters.Add($"LedgerId{i}", item.LedgerId);
+            parameters.Add($"Currency{i}", item.Currency);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"CreditId{i}", item.CreditId);
+            parameters.Add($"LoanId{i}", item.LoanId);
+            parameters.Add($"FundingTradeId{i}", item.FundingTradeId);
+            parameters.Add($"AllocatedGrossInterest{i}", item.AllocatedGrossInterest);
+            parameters.Add($"AllocatedFeeAmount{i}", item.AllocatedFeeAmount);
+            parameters.Add($"AllocatedNetInterest{i}", item.AllocatedNetInterest);
+            parameters.Add($"AllocationFraction{i}", item.AllocationFraction);
+            parameters.Add($"AllocationMethod{i}", item.AllocationMethod);
+            parameters.Add($"Confidence{i}", item.Confidence);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, allocation_key) DO UPDATE SET
+    utc = EXCLUDED.utc,
+    ledger_id = EXCLUDED.ledger_id,
+    currency = EXCLUDED.currency,
+    symbol = EXCLUDED.symbol,
+    credit_id = EXCLUDED.credit_id,
+    loan_id = EXCLUDED.loan_id,
+    funding_trade_id = EXCLUDED.funding_trade_id,
+    allocated_gross_interest = EXCLUDED.allocated_gross_interest,
+    allocated_fee_amount = EXCLUDED.allocated_fee_amount,
+    allocated_net_interest = EXCLUDED.allocated_net_interest,
+    allocation_fraction = EXCLUDED.allocation_fraction,
+    allocation_method = EXCLUDED.allocation_method,
+    confidence = EXCLUDED.confidence,
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertCapitalEventsCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingCapitalEventRecord> events,
+        CancellationToken ct)
+    {
+        if (events.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + events.Count * 360);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_capital_events
+(utc, exchange, event_key, symbol, currency, wallet_type, event_type, credit_id, loan_id, funding_trade_id, amount, source_type, description, metadata)
+VALUES ");
+
+        for (int i = 0; i < events.Count; i++)
+        {
+            var item = events[i];
+            sql.Append($"(@Utc{i}, @Exchange{i}, @EventKey{i}, @Symbol{i}, @Currency{i}, @WalletType{i}, @EventType{i}, @CreditId{i}, @LoanId{i}, @FundingTradeId{i}, @Amount{i}, @SourceType{i}, @Description{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Utc{i}", item.Utc);
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"EventKey{i}", item.EventKey);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"Currency{i}", item.Currency);
+            parameters.Add($"WalletType{i}", item.WalletType);
+            parameters.Add($"EventType{i}", item.EventType);
+            parameters.Add($"CreditId{i}", item.CreditId);
+            parameters.Add($"LoanId{i}", item.LoanId);
+            parameters.Add($"FundingTradeId{i}", item.FundingTradeId);
+            parameters.Add($"Amount{i}", item.Amount);
+            parameters.Add($"SourceType{i}", item.SourceType);
+            parameters.Add($"Description{i}", item.Description);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, event_key) DO UPDATE SET
+    utc = EXCLUDED.utc,
+    symbol = EXCLUDED.symbol,
+    currency = EXCLUDED.currency,
+    wallet_type = EXCLUDED.wallet_type,
+    event_type = EXCLUDED.event_type,
+    credit_id = EXCLUDED.credit_id,
+    loan_id = EXCLUDED.loan_id,
+    funding_trade_id = EXCLUDED.funding_trade_id,
+    amount = EXCLUDED.amount,
+    source_type = EXCLUDED.source_type,
+    description = EXCLUDED.description,
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
     private static string? SerializeJson(object? value)
     {
         if (value is null)
@@ -652,6 +772,8 @@ public sealed record FundingPersistenceBatch(
     IReadOnlyList<FundingLoanStateRecord> Loans,
     IReadOnlyList<FundingTradeRecord> Trades,
     IReadOnlyList<FundingInterestLedgerRecord> InterestEntries,
+    IReadOnlyList<FundingInterestAllocationRecord> InterestAllocations,
+    IReadOnlyList<FundingCapitalEventRecord> CapitalEvents,
     FundingRuntimeHealthRecord? RuntimeHealth,
     FundingReconciliationLogRecord? ReconciliationLog);
 
@@ -798,6 +920,40 @@ public sealed record FundingInterestLedgerRecord(
     decimal GrossInterest,
     decimal FeeAmount,
     decimal NetInterest,
+    string? Description,
+    object? Metadata = null);
+
+public sealed record FundingInterestAllocationRecord(
+    DateTime Utc,
+    string Exchange,
+    string AllocationKey,
+    long LedgerId,
+    string Currency,
+    string? Symbol,
+    long? CreditId,
+    long? LoanId,
+    long? FundingTradeId,
+    decimal AllocatedGrossInterest,
+    decimal AllocatedFeeAmount,
+    decimal AllocatedNetInterest,
+    decimal AllocationFraction,
+    string AllocationMethod,
+    string? Confidence,
+    object? Metadata = null);
+
+public sealed record FundingCapitalEventRecord(
+    DateTime Utc,
+    string Exchange,
+    string EventKey,
+    string? Symbol,
+    string? Currency,
+    string? WalletType,
+    string EventType,
+    long? CreditId,
+    long? LoanId,
+    long? FundingTradeId,
+    decimal Amount,
+    string SourceType,
     string? Description,
     object? Metadata = null);
 
