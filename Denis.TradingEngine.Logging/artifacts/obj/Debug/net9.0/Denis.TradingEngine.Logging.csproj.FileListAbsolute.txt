@@ -1,5 +1,0 @@
-C:\Users\Lenovo\source\repos\Denis.TradingEngine\Denis.TradingEngine.Logging\artifacts\obj\Debug\net9.0\Denis.TradingEngine.Logging.csproj.AssemblyReference.cache
-C:\Users\Lenovo\source\repos\Denis.TradingEngine\Denis.TradingEngine.Logging\artifacts\obj\Debug\net9.0\Denis.TradingEngine.Logging.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\Lenovo\source\repos\Denis.TradingEngine\Denis.TradingEngine.Logging\artifacts\obj\Debug\net9.0\Denis.TradingEngine.Logging.AssemblyInfoInputs.cache
-C:\Users\Lenovo\source\repos\Denis.TradingEngine\Denis.TradingEngine.Logging\artifacts\obj\Debug\net9.0\Denis.TradingEngine.Logging.AssemblyInfo.cs
-C:\Users\Lenovo\source\repos\Denis.TradingEngine\Denis.TradingEngine.Logging\artifacts\obj\Debug\net9.0\Denis.TradingEngine.Logging.csproj.CoreCompileInputs.cache

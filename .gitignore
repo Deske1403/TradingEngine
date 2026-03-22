@@ -1,0 +1,21 @@
+# Build output
+**/[Bb]in/
+**/[Oo]bj/
+**/artifacts/
+**/.artifacts/
+artifacts/
+
+# Runtime / diagnostics
+logs/
+*.log
+
+# IDE / tooling
+.vs/
+.idea/
+.dotnet_cli/
+*.suo
+*.user
+*.DotSettings.user
+
+# OS
+.DS_Store
