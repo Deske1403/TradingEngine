@@ -187,6 +187,65 @@ public sealed class BitfinexFundingApi : IBitfinexFundingApi
         }
     }
 
+    public async Task<IReadOnlyList<FundingCreditInfo>> GetActiveCreditsAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct)
+    {
+        return await GetFundingStateBySymbolAsync(symbols, "credits", ParseFundingCredit, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<FundingCreditInfo>> GetCreditHistoryAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct)
+    {
+        return await GetFundingHistoryBySymbolAsync(symbols, "credits", ParseFundingCredit, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<FundingLoanInfo>> GetActiveLoansAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct)
+    {
+        return await GetFundingStateBySymbolAsync(symbols, "loans", ParseFundingLoan, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<FundingLoanInfo>> GetLoanHistoryAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct)
+    {
+        return await GetFundingHistoryBySymbolAsync(symbols, "loans", ParseFundingLoan, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<FundingTradeInfo>> GetFundingTradeHistoryAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct)
+    {
+        return await GetFundingHistoryBySymbolAsync(symbols, "trades", ParseFundingTrade, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<FundingLedgerEntry>> GetLedgerEntriesAsync(
+        IReadOnlyCollection<string> currencies,
+        CancellationToken ct)
+    {
+        if (currencies == null || currencies.Count == 0)
+            return Array.Empty<FundingLedgerEntry>();
+
+        if (string.IsNullOrWhiteSpace(_apiKey) || string.IsNullOrWhiteSpace(_apiSecret))
+            return Array.Empty<FundingLedgerEntry>();
+
+        var normalized = currencies
+            .Where(static c => !string.IsNullOrWhiteSpace(c))
+            .Select(static c => c.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (normalized.Length == 0)
+            return Array.Empty<FundingLedgerEntry>();
+
+        var tasks = normalized.Select(currency => GetLedgerEntriesByCurrencyAsync(currency, ct)).ToArray();
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        return results.SelectMany(static x => x).ToArray();
+    }
+
     public async Task<FundingOfferActionResult> SubmitOfferAsync(
         FundingOfferRequest request,
         CancellationToken ct)
@@ -354,6 +413,124 @@ public sealed class BitfinexFundingApi : IBitfinexFundingApi
         {
             _log.Warning(ex, "[BFX-FUND] Failed to parse active funding offers for {Symbol}.", symbol);
             return Array.Empty<FundingOfferInfo>();
+        }
+    }
+
+    private async Task<IReadOnlyList<T>> GetFundingStateBySymbolAsync<T>(
+        IReadOnlyCollection<string> symbols,
+        string stateKind,
+        Func<JsonElement, T?> parser,
+        CancellationToken ct)
+        where T : class
+    {
+        if (symbols == null || symbols.Count == 0)
+            return Array.Empty<T>();
+
+        if (string.IsNullOrWhiteSpace(_apiKey) || string.IsNullOrWhiteSpace(_apiSecret))
+            return Array.Empty<T>();
+
+        var normalized = symbols
+            .Where(static s => !string.IsNullOrWhiteSpace(s))
+            .Select(BitfinexFundingSymbolNormalizer.Normalize)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (normalized.Length == 0)
+            return Array.Empty<T>();
+
+        var tasks = normalized.Select(symbol => GetFundingStateBySymbolAsync(symbol, stateKind, parser, ct)).ToArray();
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        return results.SelectMany(static x => x).ToArray();
+    }
+
+    private async Task<IReadOnlyList<T>> GetFundingHistoryBySymbolAsync<T>(
+        IReadOnlyCollection<string> symbols,
+        string historyKind,
+        Func<JsonElement, T?> parser,
+        CancellationToken ct)
+        where T : class
+    {
+        if (symbols == null || symbols.Count == 0)
+            return Array.Empty<T>();
+
+        if (string.IsNullOrWhiteSpace(_apiKey) || string.IsNullOrWhiteSpace(_apiSecret))
+            return Array.Empty<T>();
+
+        var normalized = symbols
+            .Where(static s => !string.IsNullOrWhiteSpace(s))
+            .Select(BitfinexFundingSymbolNormalizer.Normalize)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (normalized.Length == 0)
+            return Array.Empty<T>();
+
+        var tasks = normalized.Select(symbol => GetFundingHistoryBySymbolAsync(symbol, historyKind, parser, ct)).ToArray();
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        return results.SelectMany(static x => x).ToArray();
+    }
+
+    private async Task<IReadOnlyList<T>> GetFundingStateBySymbolAsync<T>(
+        string symbol,
+        string stateKind,
+        Func<JsonElement, T?> parser,
+        CancellationToken ct)
+        where T : class
+    {
+        var path = $"/v2/auth/r/funding/{stateKind}/{BitfinexFundingSymbolNormalizer.Normalize(symbol)}";
+        return await GetArrayResponseAsync(path, new { }, parser, $"active funding {stateKind}", ct).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<T>> GetFundingHistoryBySymbolAsync<T>(
+        string symbol,
+        string historyKind,
+        Func<JsonElement, T?> parser,
+        CancellationToken ct)
+        where T : class
+    {
+        var path = $"/v2/auth/r/funding/{historyKind}/{BitfinexFundingSymbolNormalizer.Normalize(symbol)}/hist";
+        return await GetArrayResponseAsync(path, new { limit = 250 }, parser, $"funding {historyKind} history", ct).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<FundingLedgerEntry>> GetLedgerEntriesByCurrencyAsync(string currency, CancellationToken ct)
+    {
+        var path = $"/v2/auth/r/ledgers/{currency.Trim().ToUpperInvariant()}/hist";
+        return await GetArrayResponseAsync(path, new { limit = 250 }, ParseLedgerEntry, $"ledger history for {currency}", ct).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<T>> GetArrayResponseAsync<T>(
+        string path,
+        object payload,
+        Func<JsonElement, T?> parser,
+        string logDescription,
+        CancellationToken ct)
+        where T : class
+    {
+        var json = await SendAuthAsync(path, payload, ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(json))
+            return Array.Empty<T>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Array)
+                return Array.Empty<T>();
+
+            var items = new List<T>();
+            foreach (var item in root.EnumerateArray())
+            {
+                var parsed = parser(item);
+                if (parsed is not null)
+                    items.Add(parsed);
+            }
+
+            return items;
+        }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "[BFX-FUND] Failed to parse {Description}.", logDescription);
+            return Array.Empty<T>();
         }
     }
 
@@ -565,6 +742,36 @@ public sealed class BitfinexFundingApi : IBitfinexFundingApi
         return array[index].ValueKind == JsonValueKind.String ? array[index].GetString() : null;
     }
 
+    private static bool? ParseBoolElement(JsonElement array, int index)
+    {
+        if (array.GetArrayLength() <= index)
+            return null;
+
+        var element = array[index];
+        if (element.ValueKind == JsonValueKind.True)
+            return true;
+
+        if (element.ValueKind == JsonValueKind.False)
+            return false;
+
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var numeric))
+            return numeric != 0;
+
+        if (element.ValueKind == JsonValueKind.String &&
+            bool.TryParse(element.GetString(), out var parsedBool))
+        {
+            return parsedBool;
+        }
+
+        if (element.ValueKind == JsonValueKind.String &&
+            int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedInt))
+        {
+            return parsedInt != 0;
+        }
+
+        return null;
+    }
+
     internal static FundingOfferInfo? ParseFundingOffer(JsonElement offerArray)
     {
         if (offerArray.ValueKind != JsonValueKind.Array || offerArray.GetArrayLength() < 16)
@@ -599,6 +806,139 @@ public sealed class BitfinexFundingApi : IBitfinexFundingApi
             Renew: ParseIntElement(offerArray, 19) == 1,
             RateReal: ParseDecimalElement(offerArray, 20)
         );
+    }
+
+    internal static FundingCreditInfo? ParseFundingCredit(JsonElement creditArray)
+    {
+        if (creditArray.ValueKind != JsonValueKind.Array || creditArray.GetArrayLength() < 13)
+            return null;
+
+        var id = ParseLongElement(creditArray, 0);
+        var symbol = GetStringSafe(creditArray, 1);
+        if (id <= 0 || string.IsNullOrWhiteSpace(symbol))
+            return null;
+
+        return new FundingCreditInfo(
+            CreditId: id,
+            Symbol: BitfinexFundingSymbolNormalizer.Normalize(symbol),
+            Side: ParseSide(creditArray, 2),
+            Status: GetStringSafe(creditArray, 7) ?? string.Empty,
+            Amount: ParseDecimalElement(creditArray, 5) ?? 0m,
+            OriginalAmount: ParseDecimalElement(creditArray, 6),
+            Rate: ParseDecimalElement(creditArray, 11),
+            PeriodDays: ParseIntElement(creditArray, 12),
+            CreatedUtc: ParseUnixMillisUtc(creditArray, 3),
+            UpdatedUtc: ParseUnixMillisUtc(creditArray, 4),
+            OpenedUtc: ParseUnixMillisUtc(creditArray, 13),
+            LastPayoutUtc: ParseUnixMillisUtc(creditArray, 14),
+            FundingType: GetStringSafe(creditArray, 8),
+            RateReal: ParseDecimalElement(creditArray, 19),
+            Notify: ParseIntElement(creditArray, 15) == 1,
+            Renew: ParseIntElement(creditArray, 17) == 1,
+            NoClose: ParseIntElement(creditArray, 20) == 1,
+            PositionPair: GetStringSafe(creditArray, 21),
+            Metadata: new
+            {
+                RawStatus = GetStringSafe(creditArray, 7),
+                RawType = GetStringSafe(creditArray, 8),
+                RawFlags = ParseIntElement(creditArray, 6),
+                RawMtsCreate = ParseLongElement(creditArray, 3),
+                RawMtsUpdate = ParseLongElement(creditArray, 4),
+                RawMtsOpening = ParseLongElement(creditArray, 13),
+                RawMtsLastPayout = ParseLongElement(creditArray, 14)
+            });
+    }
+
+    internal static FundingLoanInfo? ParseFundingLoan(JsonElement loanArray)
+    {
+        if (loanArray.ValueKind != JsonValueKind.Array || loanArray.GetArrayLength() < 13)
+            return null;
+
+        var id = ParseLongElement(loanArray, 0);
+        var symbol = GetStringSafe(loanArray, 1);
+        if (id <= 0 || string.IsNullOrWhiteSpace(symbol))
+            return null;
+
+        return new FundingLoanInfo(
+            LoanId: id,
+            Symbol: BitfinexFundingSymbolNormalizer.Normalize(symbol),
+            Side: ParseSide(loanArray, 2),
+            Status: GetStringSafe(loanArray, 7) ?? string.Empty,
+            Amount: ParseDecimalElement(loanArray, 5) ?? 0m,
+            OriginalAmount: ParseDecimalElement(loanArray, 6),
+            Rate: ParseDecimalElement(loanArray, 11),
+            PeriodDays: ParseIntElement(loanArray, 12),
+            CreatedUtc: ParseUnixMillisUtc(loanArray, 3),
+            UpdatedUtc: ParseUnixMillisUtc(loanArray, 4),
+            OpenedUtc: ParseUnixMillisUtc(loanArray, 13),
+            LastPayoutUtc: ParseUnixMillisUtc(loanArray, 14),
+            FundingType: GetStringSafe(loanArray, 8),
+            RateReal: ParseDecimalElement(loanArray, 19),
+            Notify: ParseIntElement(loanArray, 15) == 1,
+            Renew: ParseIntElement(loanArray, 17) == 1,
+            NoClose: ParseIntElement(loanArray, 20) == 1,
+            PositionPair: GetStringSafe(loanArray, 21),
+            Metadata: new
+            {
+                RawStatus = GetStringSafe(loanArray, 7),
+                RawType = GetStringSafe(loanArray, 8),
+                RawFlags = ParseIntElement(loanArray, 6),
+                RawMtsCreate = ParseLongElement(loanArray, 3),
+                RawMtsUpdate = ParseLongElement(loanArray, 4),
+                RawMtsOpening = ParseLongElement(loanArray, 13),
+                RawMtsLastPayout = ParseLongElement(loanArray, 14)
+            });
+    }
+
+    internal static FundingTradeInfo? ParseFundingTrade(JsonElement tradeArray)
+    {
+        if (tradeArray.ValueKind != JsonValueKind.Array || tradeArray.GetArrayLength() < 7)
+            return null;
+
+        var id = ParseLongElement(tradeArray, 0);
+        var symbol = GetStringSafe(tradeArray, 1);
+        var utc = ParseUnixMillisUtc(tradeArray, 2);
+
+        if (id <= 0 || string.IsNullOrWhiteSpace(symbol) || !utc.HasValue)
+            return null;
+
+        return new FundingTradeInfo(
+            FundingTradeId: id,
+            Symbol: BitfinexFundingSymbolNormalizer.Normalize(symbol),
+            Utc: utc.Value,
+            OfferId: ParseNullableLongElement(tradeArray, 3),
+            Amount: ParseDecimalElement(tradeArray, 4) ?? 0m,
+            Rate: ParseDecimalElement(tradeArray, 5),
+            PeriodDays: ParseIntElement(tradeArray, 6),
+            Maker: ParseBoolElement(tradeArray, 7),
+            Metadata: null);
+    }
+
+    internal static FundingLedgerEntry? ParseLedgerEntry(JsonElement ledgerArray)
+    {
+        if (ledgerArray.ValueKind != JsonValueKind.Array || ledgerArray.GetArrayLength() < 9)
+            return null;
+
+        var ledgerId = ParseLongElement(ledgerArray, 0);
+        var currency = GetStringSafe(ledgerArray, 1);
+        var walletType = GetStringSafe(ledgerArray, 2);
+        var utc = ParseUnixMillisUtc(ledgerArray, 3);
+        var amount = ParseDecimalElement(ledgerArray, 5);
+
+        if (ledgerId <= 0 || string.IsNullOrWhiteSpace(currency) || string.IsNullOrWhiteSpace(walletType) || !utc.HasValue || !amount.HasValue)
+            return null;
+
+        var description = GetStringSafe(ledgerArray, 8);
+        return new FundingLedgerEntry(
+            LedgerId: ledgerId,
+            Currency: currency!.Trim().ToUpperInvariant(),
+            WalletType: walletType!,
+            Utc: utc.Value,
+            Amount: amount.Value,
+            BalanceAfter: ParseDecimalElement(ledgerArray, 6),
+            EntryType: ClassifyLedgerEntryType(description),
+            Description: description,
+            Metadata: null);
     }
 
     private static FundingOfferInfo? TryParseOfferPayload(JsonElement payload)
@@ -656,6 +996,12 @@ public sealed class BitfinexFundingApi : IBitfinexFundingApi
         return 0;
     }
 
+    private static long? ParseNullableLongElement(JsonElement array, int index)
+    {
+        var value = ParseLongElement(array, index);
+        return value > 0 ? value : null;
+    }
+
     private static DateTime? ParseUnixMillisUtc(JsonElement array, int index)
     {
         var value = ParseLongElement(array, index);
@@ -663,6 +1009,29 @@ public sealed class BitfinexFundingApi : IBitfinexFundingApi
             return null;
 
         return DateTimeOffset.FromUnixTimeMilliseconds(value).UtcDateTime;
+    }
+
+    private static string? ParseSide(JsonElement array, int index)
+    {
+        var side = ParseIntElement(array, index);
+        return side?.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string ClassifyLedgerEntryType(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            return "unknown";
+
+        if (description.IndexOf("Margin Funding Payment", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "margin_funding_payment";
+
+        if (description.IndexOf("Transfer of", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "wallet_transfer";
+
+        if (description.IndexOf("Exchange ", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "wallet_conversion";
+
+        return "other";
     }
 
     private static string Trunc(string? text, int max)

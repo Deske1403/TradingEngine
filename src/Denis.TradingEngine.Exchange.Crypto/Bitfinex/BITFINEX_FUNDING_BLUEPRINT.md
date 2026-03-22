@@ -30,6 +30,18 @@ What is already proven in live runtime:
 - funding writes its basic operational state to dedicated funding tables
 - reserve logic can intentionally block auto-reinvestment
 
+What is now also implemented in code and schema, pending next runtime verification:
+
+- REST lifecycle sync for `credits`, `loans`, `funding trades`, and `ledger` history
+- dedicated persistence into:
+  - `funding_credits`
+  - `funding_loans`
+  - `funding_trades`
+  - `funding_interest_ledger`
+  - `funding_reconciliation_log`
+- wallet delta classification metadata for funding wallet snapshots
+- unique `ledger_id`-based funding payment deduplication
+
 This means the basic funding runtime is already real and working.
 
 ## Target Philosophy
@@ -279,17 +291,16 @@ Metrics that do not matter by themselves:
 
 ## What Must Exist Before We Claim "Full Journey"
 
-The following still need to be complete and linked:
+The structural pieces now exist in code.
 
-- `funding_credits`
-- `funding_loans`
-- `funding_trades`
-- `funding_interest_ledger`
-- reliable lifecycle linking between offer, execution, interest, and return
-- clear classification of wallet changes
-- REST reconciliation for funding truth recovery
+What still needs to be proven in runtime:
 
-Without these, we have a working engine, but not a complete funding book.
+- first clean restart with the new lifecycle slice enabled
+- first full post-return sync proving credits / trades / interest rows land correctly
+- validation that ledger entries and wallet-return behavior line up over a real cycle
+- validation of link quality when multiple same-currency funding chunks overlap
+
+Until that is confirmed, we have a very strong funding book implementation, but not yet a fully verified funding book.
 
 ## Steps To Follow
 
@@ -306,6 +317,11 @@ Implement and persist:
 Goal:
 
 - exact accounting of funding lifecycle
+
+Status:
+
+- implemented in code and DB schema
+- next task is live verification after restart and real return cycles
 
 ### Step 2. Build the Funding Book View
 

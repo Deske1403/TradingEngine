@@ -726,16 +726,23 @@ CREATE TABLE IF NOT EXISTS funding_interest_ledger (
     id                BIGSERIAL       PRIMARY KEY,
     utc               TIMESTAMPTZ     NOT NULL,
     exchange          TEXT            NOT NULL,
+    ledger_id         BIGINT,
     currency          TEXT            NOT NULL,
+    wallet_type       TEXT,
     symbol            TEXT,
     entry_type        TEXT            NOT NULL,
     credit_id         BIGINT,
     loan_id           BIGINT,
     funding_trade_id  BIGINT,
+    raw_amount        NUMERIC(18,12),
+    balance_after     NUMERIC(18,12),
     gross_interest    NUMERIC(18,12)  NOT NULL DEFAULT 0,
     fee_amount        NUMERIC(18,12)  NOT NULL DEFAULT 0,
     net_interest      NUMERIC(18,12)  NOT NULL DEFAULT 0,
-    metadata          JSONB
+    description       TEXT,
+    metadata          JSONB,
+
+    CONSTRAINT ux_funding_interest_ledger_exchange_ledger_id UNIQUE (exchange, ledger_id)
 );
 
 CREATE INDEX IF NOT EXISTS ix_funding_interest_ledger_exchange_symbol_utc

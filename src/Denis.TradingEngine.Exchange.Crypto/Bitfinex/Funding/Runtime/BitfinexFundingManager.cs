@@ -21,13 +21,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private readonly ILogger _log;
     private readonly object _sync = new();
     private readonly object _offersSync = new();
+    private readonly object _walletsSync = new();
     private readonly Dictionary<string, FundingOfferInfo> _activeOffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _managedOfferIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FundingWalletBalance> _latestWalletBalances = new(StringComparer.OrdinalIgnoreCase);
 
     private CancellationTokenSource? _linkedCts;
     private Task? _loopTask;
     private Task? _feedTask;
     private DateTime _lastOfferStateSyncUtc;
+    private DateTime _lastLifecycleSyncUtc;
     private bool _hasOfferSnapshot;
 
     public BitfinexFundingManager(
@@ -236,8 +239,14 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         LogCycleSummary(wallets, tickers, activeOffers, decisions);
 
-        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults);
-        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, runtimeHealth, ct).ConfigureAwait(false);
+        FundingLifecycleSyncResult lifecycleSync = FundingLifecycleSyncResult.Empty;
+        if (ShouldRefreshLifecycleFromRest())
+        {
+            lifecycleSync = await SyncLifecycleStateAsync(preferredSymbols, ct).ConfigureAwait(false);
+        }
+
+        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, lifecycleSync);
+        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
     }
 
     private FundingPlacementCandidate? TryBuildPlacementCandidate(
@@ -657,12 +666,13 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers,
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
+        FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealth,
         CancellationToken ct)
     {
         if (_fundingRepo is not null)
         {
-            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, runtimeHealth);
+            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, lifecycleSync, runtimeHealth);
             await _fundingRepo.PersistCycleAsync(batch, ct).ConfigureAwait(false);
         }
 
@@ -743,6 +753,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers,
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
+        FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealthMetadata)
     {
         var actionResultsBySymbol = actionResults
@@ -750,15 +761,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ToDictionary(static g => g.Key, static g => g.Last(), StringComparer.OrdinalIgnoreCase);
 
         var walletRows = wallets
-            .Select(wallet => new FundingWalletSnapshotRecord(
-                Utc: DateTime.UtcNow,
-                Exchange: "bitfinex",
-                WalletType: wallet.WalletType,
-                Currency: wallet.Currency,
-                Total: wallet.Total,
-                Available: wallet.Available,
-                Reserved: wallet.Reserved,
-                Source: "rest_cycle"))
+            .Select(wallet => CreateWalletSnapshotRecord(wallet, "rest_cycle"))
             .ToArray();
 
         var marketRows = tickers
@@ -856,7 +859,499 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             OfferActions: actionRows,
             Offers: offerRowsById.Values.ToArray(),
             OfferEvents: eventRows,
-            RuntimeHealth: runtimeHealth);
+            Credits: lifecycleSync.Credits,
+            Loans: lifecycleSync.Loans,
+            Trades: lifecycleSync.Trades,
+            InterestEntries: lifecycleSync.InterestEntries,
+            RuntimeHealth: runtimeHealth,
+            ReconciliationLog: lifecycleSync.ReconciliationLog);
+    }
+
+    private bool ShouldRefreshLifecycleFromRest()
+    {
+        var nowUtc = DateTime.UtcNow;
+        if (_lastLifecycleSyncUtc == default)
+            return true;
+
+        var lifecycleInterval = TimeSpan.FromSeconds(Math.Max(30, _options.RestLifecycleSyncIntervalSeconds));
+        return (nowUtc - _lastLifecycleSyncUtc) >= lifecycleInterval;
+    }
+
+    private async Task<FundingLifecycleSyncResult> SyncLifecycleStateAsync(
+        IReadOnlyList<string> preferredSymbols,
+        CancellationToken ct)
+    {
+        if (preferredSymbols.Count == 0)
+            return FundingLifecycleSyncResult.Empty;
+
+        var startedUtc = DateTime.UtcNow;
+        var currencies = preferredSymbols
+            .Select(FundingSymbolToCurrency)
+            .Where(static currency => !string.IsNullOrWhiteSpace(currency))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var activeCreditsTask = _api.GetActiveCreditsAsync(preferredSymbols, ct);
+        var creditHistoryTask = _api.GetCreditHistoryAsync(preferredSymbols, ct);
+        var activeLoansTask = _api.GetActiveLoansAsync(preferredSymbols, ct);
+        var loanHistoryTask = _api.GetLoanHistoryAsync(preferredSymbols, ct);
+        var tradeHistoryTask = _api.GetFundingTradeHistoryAsync(preferredSymbols, ct);
+        var ledgerEntriesTask = _api.GetLedgerEntriesAsync(currencies, ct);
+
+        await Task.WhenAll(
+            activeCreditsTask,
+            creditHistoryTask,
+            activeLoansTask,
+            loanHistoryTask,
+            tradeHistoryTask,
+            ledgerEntriesTask).ConfigureAwait(false);
+
+        var lookbackCutoffUtc = DateTime.UtcNow.AddDays(-Math.Max(1, _options.HistoryLookbackDays));
+        var activeCredits = activeCreditsTask.Result;
+        var creditHistory = creditHistoryTask.Result
+            .Where(credit => GetLifecycleRelevantUtc(credit.CreatedUtc, credit.UpdatedUtc, credit.OpenedUtc, credit.LastPayoutUtc) >= lookbackCutoffUtc)
+            .ToArray();
+        var activeLoans = activeLoansTask.Result;
+        var loanHistory = loanHistoryTask.Result
+            .Where(loan => GetLifecycleRelevantUtc(loan.CreatedUtc, loan.UpdatedUtc, loan.OpenedUtc, loan.LastPayoutUtc) >= lookbackCutoffUtc)
+            .ToArray();
+        var tradeHistory = tradeHistoryTask.Result
+            .Where(trade => trade.Utc >= lookbackCutoffUtc)
+            .ToArray();
+        var ledgerEntries = ledgerEntriesTask.Result
+            .Where(entry => entry.Utc >= lookbackCutoffUtc)
+            .ToArray();
+
+        var creditRows = BuildCreditStateRecords(activeCredits, creditHistory);
+        var loanRows = BuildLoanStateRecords(activeLoans, loanHistory);
+        var tradeRows = BuildTradeRecords(tradeHistory, creditRows, loanRows);
+        var interestRows = BuildInterestLedgerRecords(ledgerEntries, tradeRows, creditRows, loanRows);
+        var completedUtc = DateTime.UtcNow;
+
+        _lastLifecycleSyncUtc = completedUtc;
+
+        return new FundingLifecycleSyncResult(
+            SyncedUtc: completedUtc,
+            Credits: creditRows,
+            Loans: loanRows,
+            Trades: tradeRows,
+            InterestEntries: interestRows,
+            ReconciliationLog: BuildLifecycleReconciliationLog(
+                startedUtc,
+                completedUtc,
+                preferredSymbols,
+                creditRows,
+                loanRows,
+                tradeRows,
+                interestRows));
+    }
+
+    private IReadOnlyList<FundingCreditStateRecord> BuildCreditStateRecords(
+        IReadOnlyList<FundingCreditInfo> activeCredits,
+        IReadOnlyList<FundingCreditInfo> creditHistory)
+    {
+        var rowsById = new Dictionary<long, FundingCreditStateRecord>();
+
+        foreach (var credit in creditHistory)
+        {
+            var row = ToCreditStateRecord(credit);
+            rowsById[row.CreditId] = row;
+        }
+
+        foreach (var credit in activeCredits)
+        {
+            var row = ToCreditStateRecord(credit);
+            rowsById[row.CreditId] = row;
+        }
+
+        return rowsById.Values
+            .OrderByDescending(row => row.UpdatedUtc ?? row.OpenedUtc ?? row.CreatedUtc ?? DateTime.MinValue)
+            .ToArray();
+    }
+
+    private IReadOnlyList<FundingLoanStateRecord> BuildLoanStateRecords(
+        IReadOnlyList<FundingLoanInfo> activeLoans,
+        IReadOnlyList<FundingLoanInfo> loanHistory)
+    {
+        var rowsById = new Dictionary<long, FundingLoanStateRecord>();
+
+        foreach (var loan in loanHistory)
+        {
+            var row = ToLoanStateRecord(loan);
+            rowsById[row.LoanId] = row;
+        }
+
+        foreach (var loan in activeLoans)
+        {
+            var row = ToLoanStateRecord(loan);
+            rowsById[row.LoanId] = row;
+        }
+
+        return rowsById.Values
+            .OrderByDescending(row => row.UpdatedUtc ?? row.OpenedUtc ?? row.CreatedUtc ?? DateTime.MinValue)
+            .ToArray();
+    }
+
+    private IReadOnlyList<FundingTradeRecord> BuildTradeRecords(
+        IReadOnlyList<FundingTradeInfo> trades,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans)
+    {
+        return trades
+            .OrderByDescending(static trade => trade.Utc)
+            .Select(trade =>
+            {
+                var creditCandidates = FindMatchingCredits(trade, credits);
+                var loanCandidates = FindMatchingLoans(trade, loans);
+
+                return new FundingTradeRecord(
+                    Utc: trade.Utc,
+                    Exchange: "bitfinex",
+                    FundingTradeId: trade.FundingTradeId,
+                    Symbol: trade.Symbol,
+                    OfferId: trade.OfferId,
+                    CreditId: creditCandidates.Count == 1 ? creditCandidates[0].CreditId : null,
+                    LoanId: loanCandidates.Count == 1 ? loanCandidates[0].LoanId : null,
+                    Amount: trade.Amount,
+                    Rate: trade.Rate,
+                    PeriodDays: trade.PeriodDays,
+                    Maker: trade.Maker,
+                    Metadata: new
+                    {
+                        CreditMatchCount = creditCandidates.Count,
+                        LoanMatchCount = loanCandidates.Count,
+                        trade.Metadata
+                    });
+            })
+            .ToArray();
+    }
+
+    private IReadOnlyList<FundingInterestLedgerRecord> BuildInterestLedgerRecords(
+        IReadOnlyList<FundingLedgerEntry> ledgerEntries,
+        IReadOnlyList<FundingTradeRecord> trades,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans)
+    {
+        var interestEntries = ledgerEntries
+            .Where(entry => string.Equals(entry.EntryType, "margin_funding_payment", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(static entry => entry.Utc)
+            .ToArray();
+
+        return interestEntries
+            .Select(entry =>
+            {
+                var symbol = CurrencyToFundingSymbol(entry.Currency);
+                var tradeCandidates = trades
+                    .Where(trade =>
+                        string.Equals(trade.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+                        trade.Utc <= entry.Utc &&
+                        trade.Utc >= entry.Utc.AddDays(-3))
+                    .OrderByDescending(static trade => trade.Utc)
+                    .Take(5)
+                    .ToArray();
+
+                var creditCandidates = credits
+                    .Where(credit =>
+                        string.Equals(credit.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+                        IsLifecycleRecordRelevantAt(credit.CreatedUtc, credit.OpenedUtc, credit.ClosedUtc, entry.Utc))
+                    .Take(5)
+                    .ToArray();
+
+                var loanCandidates = loans
+                    .Where(loan =>
+                        string.Equals(loan.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+                        IsLifecycleRecordRelevantAt(loan.CreatedUtc, loan.OpenedUtc, loan.ClosedUtc, entry.Utc))
+                    .Take(5)
+                    .ToArray();
+
+                return new FundingInterestLedgerRecord(
+                    Utc: entry.Utc,
+                    Exchange: "bitfinex",
+                    LedgerId: entry.LedgerId,
+                    Currency: entry.Currency,
+                    WalletType: entry.WalletType,
+                    Symbol: symbol,
+                    EntryType: entry.EntryType,
+                    CreditId: creditCandidates.Length == 1 ? creditCandidates[0].CreditId : null,
+                    LoanId: loanCandidates.Length == 1 ? loanCandidates[0].LoanId : null,
+                    FundingTradeId: tradeCandidates.Length == 1 ? tradeCandidates[0].FundingTradeId : null,
+                    RawAmount: entry.Amount,
+                    BalanceAfter: entry.BalanceAfter,
+                    GrossInterest: entry.Amount,
+                    FeeAmount: 0m,
+                    NetInterest: entry.Amount,
+                    Description: entry.Description,
+                    Metadata: new
+                    {
+                        AmountInterpretation = "ledger_credit_amount",
+                        TradeMatchCount = tradeCandidates.Length,
+                        CreditMatchCount = creditCandidates.Length,
+                        LoanMatchCount = loanCandidates.Length,
+                        entry.Metadata
+                    });
+            })
+            .ToArray();
+    }
+
+    private FundingCreditStateRecord ToCreditStateRecord(FundingCreditInfo credit)
+    {
+        var closedUtc = IsClosedLifecycleStatus(credit.Status)
+            ? (credit.UpdatedUtc ?? credit.LastPayoutUtc ?? credit.OpenedUtc ?? credit.CreatedUtc)
+            : null;
+
+        return new FundingCreditStateRecord(
+            Exchange: "bitfinex",
+            CreditId: credit.CreditId,
+            Symbol: credit.Symbol,
+            Side: credit.Side,
+            Status: credit.Status,
+            Amount: credit.Amount,
+            OriginalAmount: credit.OriginalAmount,
+            Rate: credit.Rate,
+            PeriodDays: credit.PeriodDays,
+            CreatedUtc: credit.CreatedUtc,
+            UpdatedUtc: credit.UpdatedUtc,
+            OpenedUtc: credit.OpenedUtc,
+            ClosedUtc: closedUtc,
+            Metadata: new
+            {
+                credit.FundingType,
+                credit.RateReal,
+                credit.Notify,
+                credit.Renew,
+                credit.NoClose,
+                credit.PositionPair,
+                credit.LastPayoutUtc,
+                credit.Metadata
+            });
+    }
+
+    private FundingLoanStateRecord ToLoanStateRecord(FundingLoanInfo loan)
+    {
+        var closedUtc = IsClosedLifecycleStatus(loan.Status)
+            ? (loan.UpdatedUtc ?? loan.LastPayoutUtc ?? loan.OpenedUtc ?? loan.CreatedUtc)
+            : null;
+
+        return new FundingLoanStateRecord(
+            Exchange: "bitfinex",
+            LoanId: loan.LoanId,
+            Symbol: loan.Symbol,
+            Side: loan.Side,
+            Status: loan.Status,
+            Amount: loan.Amount,
+            OriginalAmount: loan.OriginalAmount,
+            Rate: loan.Rate,
+            PeriodDays: loan.PeriodDays,
+            CreatedUtc: loan.CreatedUtc,
+            UpdatedUtc: loan.UpdatedUtc,
+            OpenedUtc: loan.OpenedUtc,
+            ClosedUtc: closedUtc,
+            Metadata: new
+            {
+                loan.FundingType,
+                loan.RateReal,
+                loan.Notify,
+                loan.Renew,
+                loan.NoClose,
+                loan.PositionPair,
+                loan.LastPayoutUtc,
+                loan.Metadata
+            });
+    }
+
+    private FundingReconciliationLogRecord BuildLifecycleReconciliationLog(
+        DateTime startedUtc,
+        DateTime completedUtc,
+        IReadOnlyList<string> preferredSymbols,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        IReadOnlyList<FundingLoanStateRecord> loans,
+        IReadOnlyList<FundingTradeRecord> trades,
+        IReadOnlyList<FundingInterestLedgerRecord> interestEntries)
+    {
+        var unlinkedTrades = trades.Count(trade => !trade.CreditId.HasValue && !trade.LoanId.HasValue);
+        var unlinkedInterest = interestEntries.Count(entry =>
+            !entry.CreditId.HasValue &&
+            !entry.LoanId.HasValue &&
+            !entry.FundingTradeId.HasValue);
+
+        return new FundingReconciliationLogRecord(
+            StartedUtc: startedUtc,
+            CompletedUtc: completedUtc,
+            Exchange: "bitfinex",
+            Symbol: null,
+            MismatchCount: unlinkedTrades + unlinkedInterest,
+            CorrectedCount: 0,
+            Severity: (unlinkedTrades + unlinkedInterest) == 0 ? "info" : "warning",
+            Summary: $"symbols={string.Join(",", preferredSymbols)} credits={credits.Count} loans={loans.Count} trades={trades.Count} interest={interestEntries.Count} unlinkedTrades={unlinkedTrades} unlinkedInterest={unlinkedInterest}",
+            Metadata: new
+            {
+                ActiveCredits = credits.Count(credit => !IsClosedLifecycleStatus(credit.Status)),
+                ClosedCredits = credits.Count(credit => IsClosedLifecycleStatus(credit.Status)),
+                ActiveLoans = loans.Count(loan => !IsClosedLifecycleStatus(loan.Status)),
+                ClosedLoans = loans.Count(loan => IsClosedLifecycleStatus(loan.Status))
+            });
+    }
+
+    private FundingWalletSnapshotRecord CreateWalletSnapshotRecord(FundingWalletBalance wallet, string source)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var metadata = BuildWalletSnapshotMetadata(wallet, source, nowUtc);
+
+        return new FundingWalletSnapshotRecord(
+            Utc: nowUtc,
+            Exchange: "bitfinex",
+            WalletType: wallet.WalletType,
+            Currency: wallet.Currency,
+            Total: wallet.Total,
+            Available: wallet.Available,
+            Reserved: wallet.Reserved,
+            Source: source,
+            Metadata: metadata);
+    }
+
+    private object BuildWalletSnapshotMetadata(FundingWalletBalance wallet, string source, DateTime observedUtc)
+    {
+        lock (_walletsSync)
+        {
+            var key = $"{wallet.WalletType.Trim().ToLowerInvariant()}:{NormalizeCurrency(wallet.Currency)}";
+            _latestWalletBalances.TryGetValue(key, out var previous);
+
+            var deltaTotal = previous is null ? 0m : wallet.Total - previous.Total;
+            var deltaAvailable = previous is null ? 0m : wallet.Available - previous.Available;
+            var deltaReserved = previous is null ? 0m : wallet.Reserved - previous.Reserved;
+            var movementType = ClassifyWalletMovement(previous, wallet, deltaTotal, deltaAvailable, deltaReserved);
+
+            _latestWalletBalances[key] = wallet;
+
+            return new
+            {
+                source,
+                observedUtc,
+                PreviousTotal = previous?.Total,
+                PreviousAvailable = previous?.Available,
+                PreviousReserved = previous?.Reserved,
+                deltaTotal,
+                deltaAvailable,
+                deltaReserved,
+                movementType
+            };
+        }
+    }
+
+    private static IReadOnlyList<FundingCreditStateRecord> FindMatchingCredits(
+        FundingTradeInfo trade,
+        IReadOnlyList<FundingCreditStateRecord> credits)
+    {
+        return credits
+            .Where(credit =>
+                string.Equals(credit.Symbol, trade.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                AreClose(Math.Abs(credit.Amount), Math.Abs(trade.Amount), 0.00000001m) &&
+                (!trade.Rate.HasValue || !credit.Rate.HasValue || AreClose(credit.Rate.Value, trade.Rate.Value, 0.00000050m)) &&
+                (!trade.PeriodDays.HasValue || !credit.PeriodDays.HasValue || trade.PeriodDays.Value == credit.PeriodDays.Value) &&
+                IsLifecycleRecordRelevantAt(credit.CreatedUtc, credit.OpenedUtc, credit.ClosedUtc, trade.Utc))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<FundingLoanStateRecord> FindMatchingLoans(
+        FundingTradeInfo trade,
+        IReadOnlyList<FundingLoanStateRecord> loans)
+    {
+        return loans
+            .Where(loan =>
+                string.Equals(loan.Symbol, trade.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                AreClose(Math.Abs(loan.Amount), Math.Abs(trade.Amount), 0.00000001m) &&
+                (!trade.Rate.HasValue || !loan.Rate.HasValue || AreClose(loan.Rate.Value, trade.Rate.Value, 0.00000050m)) &&
+                (!trade.PeriodDays.HasValue || !loan.PeriodDays.HasValue || trade.PeriodDays.Value == loan.PeriodDays.Value) &&
+                IsLifecycleRecordRelevantAt(loan.CreatedUtc, loan.OpenedUtc, loan.ClosedUtc, trade.Utc))
+            .ToArray();
+    }
+
+    private static bool IsClosedLifecycleStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return false;
+
+        return status.IndexOf("closed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               status.IndexOf("executed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               status.IndexOf("canceled", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static DateTime GetLifecycleRelevantUtc(
+        DateTime? createdUtc,
+        DateTime? updatedUtc,
+        DateTime? openedUtc,
+        DateTime? payoutUtc)
+    {
+        return payoutUtc ?? updatedUtc ?? openedUtc ?? createdUtc ?? DateTime.MinValue;
+    }
+
+    private static bool IsLifecycleRecordRelevantAt(
+        DateTime? createdUtc,
+        DateTime? openedUtc,
+        DateTime? closedUtc,
+        DateTime targetUtc)
+    {
+        var opened = openedUtc ?? createdUtc ?? DateTime.MinValue;
+        var closed = closedUtc ?? targetUtc.AddDays(1);
+
+        return targetUtc >= opened.AddMinutes(-5) && targetUtc <= closed.AddDays(1);
+    }
+
+    private static bool AreClose(decimal left, decimal right, decimal tolerance)
+    {
+        return Math.Abs(left - right) <= tolerance;
+    }
+
+    private static string CurrencyToFundingSymbol(string currency)
+    {
+        var normalized = NormalizeCurrency(currency);
+        return string.IsNullOrWhiteSpace(normalized) ? string.Empty : $"f{normalized}";
+    }
+
+    private static string ClassifyWalletMovement(
+        FundingWalletBalance? previous,
+        FundingWalletBalance current,
+        decimal deltaTotal,
+        decimal deltaAvailable,
+        decimal deltaReserved)
+    {
+        if (previous is null)
+            return "initial_observation";
+
+        if (AreClose(deltaTotal, 0m, 0.00000001m) &&
+            AreClose(deltaAvailable, 0m, 0.00000001m) &&
+            AreClose(deltaReserved, 0m, 0.00000001m))
+        {
+            return "unchanged";
+        }
+
+        if (deltaTotal > 0m)
+            return "wallet_total_increase";
+
+        if (deltaTotal < 0m)
+            return "wallet_total_decrease";
+
+        if (deltaAvailable < 0m && deltaReserved > 0m)
+            return "reserve_lock";
+
+        if (deltaAvailable > 0m && deltaReserved < 0m)
+            return "reserve_release";
+
+        return "wallet_rebalance";
+    }
+
+    private DateTime? GetLastRestSyncUtc()
+    {
+        var lastOfferSync = _lastOfferStateSyncUtc == default ? (DateTime?)null : _lastOfferStateSyncUtc;
+        var lastLifecycleSync = _lastLifecycleSyncUtc == default ? (DateTime?)null : _lastLifecycleSyncUtc;
+
+        if (!lastOfferSync.HasValue)
+            return lastLifecycleSync;
+
+        if (!lastLifecycleSync.HasValue)
+            return lastOfferSync;
+
+        return lastOfferSync.Value >= lastLifecycleSync.Value ? lastOfferSync : lastLifecycleSync;
     }
 
     private FundingRuntimeHealthRecord CreateRuntimeHealthRecord(object runtimeHealthMetadata)
@@ -874,7 +1369,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Exchange: "bitfinex",
             WsConnected: wsConnected,
             WsLastMessageUtc: wsLastMessageUtc == default ? null : wsLastMessageUtc,
-            RestLastSyncUtc: _lastOfferStateSyncUtc == default ? null : _lastOfferStateSyncUtc,
+            RestLastSyncUtc: GetLastRestSyncUtc(),
             ErrorCount: 0,
             DegradedMode: _options.UsePrivateWebSocket && !wsConnected,
             SelfDisabled: false,
@@ -1195,15 +1690,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         if (_fundingRepo is not null)
         {
-            var walletRows = wallets.Select(wallet => new FundingWalletSnapshotRecord(
-                Utc: DateTime.UtcNow,
-                Exchange: "bitfinex",
-                WalletType: wallet.WalletType,
-                Currency: wallet.Currency,
-                Total: wallet.Total,
-                Available: wallet.Available,
-                Reserved: wallet.Reserved,
-                Source: snapshotType)).ToArray();
+            var walletRows = wallets
+                .Select(wallet => CreateWalletSnapshotRecord(wallet, snapshotType))
+                .ToArray();
 
             await _fundingRepo.InsertWalletSnapshotsAsync(walletRows, ct).ConfigureAwait(false);
         }
@@ -1242,7 +1731,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingTickerSnapshot> tickers,
         IReadOnlyList<FundingOfferInfo> activeOffers,
         IReadOnlyList<FundingDecision> decisions,
-        IReadOnlyList<FundingOfferActionResult> actionResults)
+        IReadOnlyList<FundingOfferActionResult> actionResults,
+        FundingLifecycleSyncResult lifecycleSync)
     {
         return new
         {
@@ -1259,7 +1749,13 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             UsePrivateWebSocket = _options.UsePrivateWebSocket,
             PrivateWsLastMessageUtc = _privateFeed?.LastMessageUtc,
             LastRestOfferSyncUtc = _lastOfferStateSyncUtc == default ? (DateTime?)null : _lastOfferStateSyncUtc,
-            HasOfferSnapshot = _hasOfferSnapshot
+            LastRestLifecycleSyncUtc = _lastLifecycleSyncUtc == default ? (DateTime?)null : _lastLifecycleSyncUtc,
+            HasOfferSnapshot = _hasOfferSnapshot,
+            LifecycleSyncPerformed = lifecycleSync.SyncedUtc,
+            CreditCount = lifecycleSync.Credits.Count,
+            LoanCount = lifecycleSync.Loans.Count,
+            TradeCount = lifecycleSync.Trades.Count,
+            InterestEntryCount = lifecycleSync.InterestEntries.Count
         };
     }
 
@@ -1491,4 +1987,21 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal AvailableBalance,
         decimal LendableBalance,
         FundingOfferRequest Request);
+
+    private sealed record FundingLifecycleSyncResult(
+        DateTime? SyncedUtc,
+        IReadOnlyList<FundingCreditStateRecord> Credits,
+        IReadOnlyList<FundingLoanStateRecord> Loans,
+        IReadOnlyList<FundingTradeRecord> Trades,
+        IReadOnlyList<FundingInterestLedgerRecord> InterestEntries,
+        FundingReconciliationLogRecord? ReconciliationLog)
+    {
+        public static FundingLifecycleSyncResult Empty { get; } = new(
+            SyncedUtc: null,
+            Credits: Array.Empty<FundingCreditStateRecord>(),
+            Loans: Array.Empty<FundingLoanStateRecord>(),
+            Trades: Array.Empty<FundingTradeRecord>(),
+            InterestEntries: Array.Empty<FundingInterestLedgerRecord>(),
+            ReconciliationLog: null);
+    }
 }

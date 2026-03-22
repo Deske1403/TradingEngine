@@ -29,7 +29,12 @@ public sealed class BitfinexFundingRepository
             batch.OfferActions.Count == 0 &&
             batch.Offers.Count == 0 &&
             batch.OfferEvents.Count == 0 &&
-            batch.RuntimeHealth is null)
+            batch.Credits.Count == 0 &&
+            batch.Loans.Count == 0 &&
+            batch.Trades.Count == 0 &&
+            batch.InterestEntries.Count == 0 &&
+            batch.RuntimeHealth is null &&
+            batch.ReconciliationLog is null)
         {
             return;
         }
@@ -44,10 +49,19 @@ public sealed class BitfinexFundingRepository
             await InsertOfferActionsCoreAsync(conn, tx, batch.OfferActions, ct).ConfigureAwait(false);
             await UpsertOffersCoreAsync(conn, tx, batch.Offers, ct).ConfigureAwait(false);
             await InsertOfferEventsCoreAsync(conn, tx, batch.OfferEvents, ct).ConfigureAwait(false);
+            await UpsertCreditsCoreAsync(conn, tx, batch.Credits, ct).ConfigureAwait(false);
+            await UpsertLoansCoreAsync(conn, tx, batch.Loans, ct).ConfigureAwait(false);
+            await UpsertTradesCoreAsync(conn, tx, batch.Trades, ct).ConfigureAwait(false);
+            await UpsertInterestLedgerCoreAsync(conn, tx, batch.InterestEntries, ct).ConfigureAwait(false);
 
             if (batch.RuntimeHealth is not null)
             {
                 await InsertRuntimeHealthCoreAsync(conn, tx, batch.RuntimeHealth, ct).ConfigureAwait(false);
+            }
+
+            if (batch.ReconciliationLog is not null)
+            {
+                await InsertReconciliationLogCoreAsync(conn, tx, batch.ReconciliationLog, ct).ConfigureAwait(false);
             }
 
             await tx.CommitAsync(ct).ConfigureAwait(false);
@@ -367,6 +381,258 @@ VALUES
         }, transaction, cancellationToken: ct)).ConfigureAwait(false);
     }
 
+    private static async Task UpsertCreditsCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingCreditStateRecord> credits,
+        CancellationToken ct)
+    {
+        if (credits.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + credits.Count * 260);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_credits
+(exchange, credit_id, symbol, side, status, amount, original_amount, rate, period_days, created_utc, updated_utc, opened_utc, closed_utc, metadata)
+VALUES ");
+
+        for (int i = 0; i < credits.Count; i++)
+        {
+            var item = credits[i];
+            sql.Append($"(@Exchange{i}, @CreditId{i}, @Symbol{i}, @Side{i}, @Status{i}, @Amount{i}, @OriginalAmount{i}, @Rate{i}, @PeriodDays{i}, @CreatedUtc{i}, @UpdatedUtc{i}, @OpenedUtc{i}, @ClosedUtc{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"CreditId{i}", item.CreditId);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"Side{i}", item.Side);
+            parameters.Add($"Status{i}", item.Status);
+            parameters.Add($"Amount{i}", item.Amount);
+            parameters.Add($"OriginalAmount{i}", item.OriginalAmount);
+            parameters.Add($"Rate{i}", item.Rate);
+            parameters.Add($"PeriodDays{i}", item.PeriodDays);
+            parameters.Add($"CreatedUtc{i}", item.CreatedUtc);
+            parameters.Add($"UpdatedUtc{i}", item.UpdatedUtc);
+            parameters.Add($"OpenedUtc{i}", item.OpenedUtc);
+            parameters.Add($"ClosedUtc{i}", item.ClosedUtc);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, credit_id) DO UPDATE SET
+    symbol = EXCLUDED.symbol,
+    side = EXCLUDED.side,
+    status = EXCLUDED.status,
+    amount = EXCLUDED.amount,
+    original_amount = EXCLUDED.original_amount,
+    rate = EXCLUDED.rate,
+    period_days = EXCLUDED.period_days,
+    created_utc = COALESCE(EXCLUDED.created_utc, funding_credits.created_utc),
+    updated_utc = COALESCE(EXCLUDED.updated_utc, funding_credits.updated_utc),
+    opened_utc = COALESCE(EXCLUDED.opened_utc, funding_credits.opened_utc),
+    closed_utc = COALESCE(EXCLUDED.closed_utc, funding_credits.closed_utc),
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertLoansCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingLoanStateRecord> loans,
+        CancellationToken ct)
+    {
+        if (loans.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + loans.Count * 260);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_loans
+(exchange, loan_id, symbol, side, status, amount, original_amount, rate, period_days, created_utc, updated_utc, opened_utc, closed_utc, metadata)
+VALUES ");
+
+        for (int i = 0; i < loans.Count; i++)
+        {
+            var item = loans[i];
+            sql.Append($"(@Exchange{i}, @LoanId{i}, @Symbol{i}, @Side{i}, @Status{i}, @Amount{i}, @OriginalAmount{i}, @Rate{i}, @PeriodDays{i}, @CreatedUtc{i}, @UpdatedUtc{i}, @OpenedUtc{i}, @ClosedUtc{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"LoanId{i}", item.LoanId);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"Side{i}", item.Side);
+            parameters.Add($"Status{i}", item.Status);
+            parameters.Add($"Amount{i}", item.Amount);
+            parameters.Add($"OriginalAmount{i}", item.OriginalAmount);
+            parameters.Add($"Rate{i}", item.Rate);
+            parameters.Add($"PeriodDays{i}", item.PeriodDays);
+            parameters.Add($"CreatedUtc{i}", item.CreatedUtc);
+            parameters.Add($"UpdatedUtc{i}", item.UpdatedUtc);
+            parameters.Add($"OpenedUtc{i}", item.OpenedUtc);
+            parameters.Add($"ClosedUtc{i}", item.ClosedUtc);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, loan_id) DO UPDATE SET
+    symbol = EXCLUDED.symbol,
+    side = EXCLUDED.side,
+    status = EXCLUDED.status,
+    amount = EXCLUDED.amount,
+    original_amount = EXCLUDED.original_amount,
+    rate = EXCLUDED.rate,
+    period_days = EXCLUDED.period_days,
+    created_utc = COALESCE(EXCLUDED.created_utc, funding_loans.created_utc),
+    updated_utc = COALESCE(EXCLUDED.updated_utc, funding_loans.updated_utc),
+    opened_utc = COALESCE(EXCLUDED.opened_utc, funding_loans.opened_utc),
+    closed_utc = COALESCE(EXCLUDED.closed_utc, funding_loans.closed_utc),
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertTradesCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingTradeRecord> trades,
+        CancellationToken ct)
+    {
+        if (trades.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + trades.Count * 260);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_trades
+(utc, exchange, funding_trade_id, symbol, offer_id, credit_id, loan_id, amount, rate, period_days, maker, metadata)
+VALUES ");
+
+        for (int i = 0; i < trades.Count; i++)
+        {
+            var item = trades[i];
+            sql.Append($"(@Utc{i}, @Exchange{i}, @FundingTradeId{i}, @Symbol{i}, @OfferId{i}, @CreditId{i}, @LoanId{i}, @Amount{i}, @Rate{i}, @PeriodDays{i}, @Maker{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Utc{i}", item.Utc);
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"FundingTradeId{i}", item.FundingTradeId);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"OfferId{i}", item.OfferId);
+            parameters.Add($"CreditId{i}", item.CreditId);
+            parameters.Add($"LoanId{i}", item.LoanId);
+            parameters.Add($"Amount{i}", item.Amount);
+            parameters.Add($"Rate{i}", item.Rate);
+            parameters.Add($"PeriodDays{i}", item.PeriodDays);
+            parameters.Add($"Maker{i}", item.Maker);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, funding_trade_id) DO UPDATE SET
+    utc = EXCLUDED.utc,
+    symbol = EXCLUDED.symbol,
+    offer_id = EXCLUDED.offer_id,
+    credit_id = EXCLUDED.credit_id,
+    loan_id = EXCLUDED.loan_id,
+    amount = EXCLUDED.amount,
+    rate = EXCLUDED.rate,
+    period_days = EXCLUDED.period_days,
+    maker = EXCLUDED.maker,
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertInterestLedgerCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingInterestLedgerRecord> entries,
+        CancellationToken ct)
+    {
+        if (entries.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + entries.Count * 320);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_interest_ledger
+(utc, exchange, ledger_id, currency, wallet_type, symbol, entry_type, credit_id, loan_id, funding_trade_id, raw_amount, balance_after, gross_interest, fee_amount, net_interest, description, metadata)
+VALUES ");
+
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var item = entries[i];
+            sql.Append($"(@Utc{i}, @Exchange{i}, @LedgerId{i}, @Currency{i}, @WalletType{i}, @Symbol{i}, @EntryType{i}, @CreditId{i}, @LoanId{i}, @FundingTradeId{i}, @RawAmount{i}, @BalanceAfter{i}, @GrossInterest{i}, @FeeAmount{i}, @NetInterest{i}, @Description{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Utc{i}", item.Utc);
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"LedgerId{i}", item.LedgerId);
+            parameters.Add($"Currency{i}", item.Currency);
+            parameters.Add($"WalletType{i}", item.WalletType);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"EntryType{i}", item.EntryType);
+            parameters.Add($"CreditId{i}", item.CreditId);
+            parameters.Add($"LoanId{i}", item.LoanId);
+            parameters.Add($"FundingTradeId{i}", item.FundingTradeId);
+            parameters.Add($"RawAmount{i}", item.RawAmount);
+            parameters.Add($"BalanceAfter{i}", item.BalanceAfter);
+            parameters.Add($"GrossInterest{i}", item.GrossInterest);
+            parameters.Add($"FeeAmount{i}", item.FeeAmount);
+            parameters.Add($"NetInterest{i}", item.NetInterest);
+            parameters.Add($"Description{i}", item.Description);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, ledger_id) DO UPDATE SET
+    utc = EXCLUDED.utc,
+    currency = EXCLUDED.currency,
+    wallet_type = EXCLUDED.wallet_type,
+    symbol = EXCLUDED.symbol,
+    entry_type = EXCLUDED.entry_type,
+    credit_id = EXCLUDED.credit_id,
+    loan_id = EXCLUDED.loan_id,
+    funding_trade_id = EXCLUDED.funding_trade_id,
+    raw_amount = EXCLUDED.raw_amount,
+    balance_after = EXCLUDED.balance_after,
+    gross_interest = EXCLUDED.gross_interest,
+    fee_amount = EXCLUDED.fee_amount,
+    net_interest = EXCLUDED.net_interest,
+    description = EXCLUDED.description,
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    private static async Task InsertReconciliationLogCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        FundingReconciliationLogRecord reconciliation,
+        CancellationToken ct)
+    {
+        const string sql = @"
+INSERT INTO funding_reconciliation_log
+(started_utc, completed_utc, exchange, symbol, mismatch_count, corrected_count, severity, summary, metadata)
+VALUES
+(@StartedUtc, @CompletedUtc, @Exchange, @Symbol, @MismatchCount, @CorrectedCount, @Severity, @Summary, @Metadata::jsonb);";
+
+        await conn.ExecuteAsync(new CommandDefinition(sql, new
+        {
+            reconciliation.StartedUtc,
+            reconciliation.CompletedUtc,
+            reconciliation.Exchange,
+            reconciliation.Symbol,
+            reconciliation.MismatchCount,
+            reconciliation.CorrectedCount,
+            reconciliation.Severity,
+            reconciliation.Summary,
+            Metadata = SerializeJson(reconciliation.Metadata)
+        }, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
     private static string? SerializeJson(object? value)
     {
         if (value is null)
@@ -382,7 +648,12 @@ public sealed record FundingPersistenceBatch(
     IReadOnlyList<FundingOfferActionRecord> OfferActions,
     IReadOnlyList<FundingOfferStateRecord> Offers,
     IReadOnlyList<FundingOfferEventRecord> OfferEvents,
-    FundingRuntimeHealthRecord? RuntimeHealth);
+    IReadOnlyList<FundingCreditStateRecord> Credits,
+    IReadOnlyList<FundingLoanStateRecord> Loans,
+    IReadOnlyList<FundingTradeRecord> Trades,
+    IReadOnlyList<FundingInterestLedgerRecord> InterestEntries,
+    FundingRuntimeHealthRecord? RuntimeHealth,
+    FundingReconciliationLogRecord? ReconciliationLog);
 
 public sealed record FundingWalletSnapshotRecord(
     DateTime Utc,
@@ -465,6 +736,71 @@ public sealed record FundingOfferEventRecord(
     string? Message,
     object? Metadata = null);
 
+public sealed record FundingCreditStateRecord(
+    string Exchange,
+    long CreditId,
+    string Symbol,
+    string? Side,
+    string Status,
+    decimal Amount,
+    decimal? OriginalAmount,
+    decimal? Rate,
+    int? PeriodDays,
+    DateTime? CreatedUtc,
+    DateTime? UpdatedUtc,
+    DateTime? OpenedUtc,
+    DateTime? ClosedUtc,
+    object? Metadata = null);
+
+public sealed record FundingLoanStateRecord(
+    string Exchange,
+    long LoanId,
+    string Symbol,
+    string? Side,
+    string Status,
+    decimal Amount,
+    decimal? OriginalAmount,
+    decimal? Rate,
+    int? PeriodDays,
+    DateTime? CreatedUtc,
+    DateTime? UpdatedUtc,
+    DateTime? OpenedUtc,
+    DateTime? ClosedUtc,
+    object? Metadata = null);
+
+public sealed record FundingTradeRecord(
+    DateTime Utc,
+    string Exchange,
+    long FundingTradeId,
+    string Symbol,
+    long? OfferId,
+    long? CreditId,
+    long? LoanId,
+    decimal Amount,
+    decimal? Rate,
+    int? PeriodDays,
+    bool? Maker,
+    object? Metadata = null);
+
+public sealed record FundingInterestLedgerRecord(
+    DateTime Utc,
+    string Exchange,
+    long LedgerId,
+    string Currency,
+    string WalletType,
+    string? Symbol,
+    string EntryType,
+    long? CreditId,
+    long? LoanId,
+    long? FundingTradeId,
+    decimal RawAmount,
+    decimal? BalanceAfter,
+    decimal GrossInterest,
+    decimal FeeAmount,
+    decimal NetInterest,
+    string? Description,
+    object? Metadata = null);
+
 public sealed record FundingRuntimeHealthRecord(
     DateTime Utc,
     string Exchange,
@@ -474,4 +810,15 @@ public sealed record FundingRuntimeHealthRecord(
     int ErrorCount,
     bool DegradedMode,
     bool SelfDisabled,
+    object? Metadata = null);
+
+public sealed record FundingReconciliationLogRecord(
+    DateTime StartedUtc,
+    DateTime? CompletedUtc,
+    string Exchange,
+    string? Symbol,
+    int MismatchCount,
+    int CorrectedCount,
+    string? Severity,
+    string? Summary,
     object? Metadata = null);

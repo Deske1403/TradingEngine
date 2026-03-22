@@ -16,6 +16,30 @@ public interface IBitfinexFundingApi : IAsyncDisposable
         IReadOnlyCollection<string> symbols,
         CancellationToken ct);
 
+    Task<IReadOnlyList<FundingCreditInfo>> GetActiveCreditsAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<FundingCreditInfo>> GetCreditHistoryAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<FundingLoanInfo>> GetActiveLoansAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<FundingLoanInfo>> GetLoanHistoryAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<FundingTradeInfo>> GetFundingTradeHistoryAsync(
+        IReadOnlyCollection<string> symbols,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<FundingLedgerEntry>> GetLedgerEntriesAsync(
+        IReadOnlyCollection<string> currencies,
+        CancellationToken ct);
+
     Task<FundingOfferActionResult> SubmitOfferAsync(
         FundingOfferRequest request,
         CancellationToken ct);

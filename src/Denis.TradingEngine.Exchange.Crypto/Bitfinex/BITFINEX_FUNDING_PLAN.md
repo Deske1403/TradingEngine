@@ -822,6 +822,49 @@ The next move is no longer "add funding at all", but:
 - keep funding persistence in dedicated tables, separate from spot trading tables
 - extend lifecycle storage beyond offers into credits / loans / trades / interest / return flow
 
+## Implemented on 2026-03-22
+
+The next lifecycle slice is now implemented in code and schema.
+
+Added on the funding read/write side:
+
+- authenticated REST reads for:
+  - active funding credits
+  - funding credit history
+  - active funding loans
+  - funding loan history
+  - funding trade history
+  - funding ledger history by currency
+- periodic lifecycle sync in the funding manager, separate from offer refresh cadence
+- wallet movement classification metadata on funding wallet snapshots
+
+Added on the dedicated funding persistence side:
+
+- `funding_credits`
+- `funding_loans`
+- `funding_trades`
+- `funding_interest_ledger`
+- `funding_reconciliation_log`
+
+Schema improvement added:
+
+- `funding_interest_ledger` now has:
+  - `ledger_id`
+  - `wallet_type`
+  - `raw_amount`
+  - `balance_after`
+  - `description`
+  - unique `(exchange, ledger_id)` dedupe key
+
+Migration added and applied locally:
+
+- `2026-03-22_enrich_funding_interest_ledger.sql`
+
+Important honesty note:
+
+- this slice compiles and the local DB schema is aligned
+- it still needs the next app restart and real runtime cycles to prove the end-to-end lifecycle writes under live conditions
+
 ## Practical test recipe
 
 Current implementation status in this repo:
@@ -1007,7 +1050,7 @@ Practical meaning:
 
 ### 1. Full funding lifecycle persistence
 
-The basic dedicated funding persistence layer now exists, but the full funding business lifecycle is not complete yet.
+The basic dedicated funding persistence layer now exists, and the lifecycle accounting slice is now implemented in code.
 
 Already covered:
 
@@ -1020,11 +1063,10 @@ Already covered:
 
 Still required next:
 
-- `funding_credits`
-- `funding_loans`
-- `funding_trades`
-- `funding_interest_ledger`
-- `funding_reconciliation_log`
+- runtime verification that `funding_credits` are populated correctly
+- runtime verification that `funding_trades` link cleanly to returned cycles
+- runtime verification that `funding_interest_ledger` receives real payment entries
+- runtime verification that `funding_reconciliation_log` stays sane over overlapping cycles
 
 Rule:
 
@@ -1041,6 +1083,11 @@ What still must be tracked explicitly:
 - when interest accrues or gets paid
 - when capital returns from the loan/funding cycle
 - when a new offer is created again from returned capital
+
+Implementation state:
+
+- the code now attempts to capture this full chain through REST lifecycle reconciliation
+- what remains is live validation and then tightening link quality where several same-currency chunks overlap
 
 ### 2. Longer-run nonce confidence
 

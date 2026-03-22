@@ -48,6 +48,10 @@ public sealed class BitfinexFundingOptions
 
     public int RestOfferSyncIntervalSeconds { get; set; } = 60;
 
+    public int RestLifecycleSyncIntervalSeconds { get; set; } = 180;
+
+    public int HistoryLookbackDays { get; set; } = 7;
+
     public int StartupDelaySeconds { get; set; } = 5;
 
     public int MinManagedOfferAgeSecondsBeforeReplace { get; set; } = 300;
