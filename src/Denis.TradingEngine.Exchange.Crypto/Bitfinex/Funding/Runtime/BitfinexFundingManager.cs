@@ -239,14 +239,17 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         LogCycleSummary(wallets, tickers, activeOffers, decisions);
 
+        var shadowPlans = BuildShadowPlans(preferredSymbols, wallets, tickers);
+        LogShadowPlans(shadowPlans);
+
         FundingLifecycleSyncResult lifecycleSync = FundingLifecycleSyncResult.Empty;
         if (ShouldRefreshLifecycleFromRest())
         {
             lifecycleSync = await SyncLifecycleStateAsync(preferredSymbols, ct).ConfigureAwait(false);
         }
 
-        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, lifecycleSync);
-        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
+        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, lifecycleSync);
+        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
     }
 
     private FundingPlacementCandidate? TryBuildPlacementCandidate(
@@ -666,6 +669,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers,
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
+        IReadOnlyList<FundingShadowPlan> shadowPlans,
         FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealth,
         CancellationToken ct)
@@ -679,7 +683,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         if (_snapshotRepo is null)
             return;
 
-        var records = new List<CryptoSnapshotRecord>(wallets.Count + tickers.Count + activeOffers.Count + decisions.Count + actionResults.Count + 1);
+        var records = new List<CryptoSnapshotRecord>(wallets.Count + tickers.Count + activeOffers.Count + decisions.Count + actionResults.Count + shadowPlans.Count + 1);
 
         foreach (var wallet in wallets)
         {
@@ -733,6 +737,17 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 Symbol: actionResult.Symbol,
                 SnapshotType: "funding_action_result",
                 Data: actionResult
+            ));
+        }
+
+        foreach (var shadowPlan in shadowPlans)
+        {
+            records.Add(new CryptoSnapshotRecord(
+                Utc: shadowPlan.TimestampUtc,
+                Exchange: "bitfinex",
+                Symbol: shadowPlan.Symbol,
+                SnapshotType: "funding_shadow_plan",
+                Data: shadowPlan
             ));
         }
 
@@ -2222,6 +2237,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers,
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
+        IReadOnlyList<FundingShadowPlan> shadowPlans,
         FundingLifecycleSyncResult lifecycleSync)
     {
         return new
@@ -2236,6 +2252,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ManagedOfferCount = GetManagedOfferCount(),
             DecisionCount = decisions.Count,
             ActionResultCount = actionResults.Count,
+            ShadowPlanCount = shadowPlans.Count,
             UsePrivateWebSocket = _options.UsePrivateWebSocket,
             PrivateWsLastMessageUtc = _privateFeed?.LastMessageUtc,
             LastRestOfferSyncUtc = _lastOfferStateSyncUtc == default ? (DateTime?)null : _lastOfferStateSyncUtc,
@@ -2245,7 +2262,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             CreditCount = lifecycleSync.Credits.Count,
             LoanCount = lifecycleSync.Loans.Count,
             TradeCount = lifecycleSync.Trades.Count,
-            InterestEntryCount = lifecycleSync.InterestEntries.Count
+            InterestEntryCount = lifecycleSync.InterestEntries.Count,
+            LayeredShadowEnabled = _options.LayeredShadowEnabled
         };
     }
 
@@ -2350,6 +2368,172 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             offerSummary,
             decisionSummary,
             _privateFeed?.LastMessageUtc);
+    }
+
+    private IReadOnlyList<FundingShadowPlan> BuildShadowPlans(
+        IReadOnlyList<string> preferredSymbols,
+        IReadOnlyList<FundingWalletBalance> wallets,
+        IReadOnlyList<FundingTickerSnapshot> tickers)
+    {
+        if (!_options.LayeredShadowEnabled || preferredSymbols.Count == 0)
+            return Array.Empty<FundingShadowPlan>();
+
+        var plans = new List<FundingShadowPlan>(preferredSymbols.Count);
+        var motorFraction = ClampFraction(_options.MotorAllocationFraction);
+        var opportunisticFraction = ClampFraction(_options.OpportunisticAllocationFraction);
+        var totalFraction = motorFraction + opportunisticFraction;
+
+        if (totalFraction <= 0m)
+            return Array.Empty<FundingShadowPlan>();
+
+        var normalizedMotorFraction = motorFraction / totalFraction;
+        var normalizedOppFraction = opportunisticFraction / totalFraction;
+
+        foreach (var symbol in preferredSymbols)
+        {
+            var currency = FundingSymbolToCurrency(symbol);
+            var wallet = FindWalletBalance(wallets, currency);
+            var ticker = tickers.FirstOrDefault(t => string.Equals(t.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+            if (wallet is null || ticker is null)
+                continue;
+
+            var lendable = Math.Max(0m, wallet.Available - _options.ReserveAmount);
+            var marketRate = ticker.AskRate > 0m ? ticker.AskRate : ticker.BidRate;
+            var regime = ClassifyMarketRegime(marketRate);
+            var timestampUtc = DateTime.UtcNow;
+            var buckets = new List<FundingShadowBucket>(2);
+
+            if (lendable >= _options.MinOfferAmount)
+            {
+                var motorTargetAmount = decimal.Round(lendable * normalizedMotorFraction, 8, MidpointRounding.ToZero);
+                var opportunisticTargetAmount = decimal.Round(lendable * normalizedOppFraction, 8, MidpointRounding.ToZero);
+
+                if (motorTargetAmount < _options.MinOfferAmount)
+                {
+                    motorTargetAmount = 0m;
+                }
+
+                if (opportunisticTargetAmount < _options.MinOfferAmount)
+                {
+                    opportunisticTargetAmount = 0m;
+                }
+
+                if (motorTargetAmount == 0m && opportunisticTargetAmount == 0m)
+                {
+                    motorTargetAmount = decimal.Round(Math.Min(lendable, _options.MaxOfferAmount), 8, MidpointRounding.ToZero);
+                }
+
+                if (motorTargetAmount > 0m)
+                {
+                    buckets.Add(new FundingShadowBucket(
+                        Bucket: "Motor",
+                        AllocationAmount: motorTargetAmount,
+                        AllocationFraction: normalizedMotorFraction,
+                        TargetRate: SelectShadowRate(marketRate, _options.MotorRateMultiplier),
+                        TargetPeriodDays: 2,
+                        MaxWaitMinutes: GetMotorMaxWaitMinutes(regime),
+                        Role: "baseline_utilization",
+                        FallbackBucket: null));
+                }
+
+                if (opportunisticTargetAmount > 0m)
+                {
+                    buckets.Add(new FundingShadowBucket(
+                        Bucket: "Opportunistic",
+                        AllocationAmount: opportunisticTargetAmount,
+                        AllocationFraction: normalizedOppFraction,
+                        TargetRate: SelectShadowRate(marketRate, _options.OpportunisticRateMultiplier),
+                        TargetPeriodDays: 2,
+                        MaxWaitMinutes: GetOpportunisticMaxWaitMinutes(regime),
+                        Role: "yield_enhancement",
+                        FallbackBucket: "Motor"));
+                }
+            }
+
+            var summary = buckets.Count == 0
+                ? $"No shadow bucket actionable. lendable={lendable:F2} reserve={_options.ReserveAmount:F2} minOffer={_options.MinOfferAmount:F2} regime={regime}"
+                : string.Join("; ", buckets.Select(bucket =>
+                    $"{bucket.Bucket} amt={bucket.AllocationAmount:F2} rate={bucket.TargetRate:E6} wait={bucket.MaxWaitMinutes}m"));
+
+            plans.Add(new FundingShadowPlan(
+                Symbol: symbol,
+                Currency: currency,
+                Regime: regime,
+                AvailableBalance: wallet.Available,
+                LendableBalance: lendable,
+                MarketAskRate: ticker.AskRate,
+                MarketBidRate: ticker.BidRate,
+                Buckets: buckets,
+                Summary: summary,
+                TimestampUtc: timestampUtc));
+        }
+
+        return plans;
+    }
+
+    private void LogShadowPlans(IReadOnlyList<FundingShadowPlan> shadowPlans)
+    {
+        if (!_options.LayeredShadowEnabled || shadowPlans.Count == 0)
+            return;
+
+        foreach (var plan in shadowPlans)
+        {
+            _log.Information(
+                "[BFX-FUND-SHADOW] symbol={Symbol} regime={Regime} avail={Avail:F2} lendable={Lendable:F2} summary={Summary}",
+                plan.Symbol,
+                plan.Regime,
+                plan.AvailableBalance,
+                plan.LendableBalance,
+                plan.Summary);
+        }
+    }
+
+    private decimal SelectShadowRate(decimal marketRate, decimal multiplier)
+    {
+        var safeMarketRate = marketRate > 0m ? marketRate : _options.MinDailyRate;
+        var scaled = safeMarketRate * multiplier;
+        return Math.Clamp(scaled, _options.MinDailyRate, _options.MaxDailyRate);
+    }
+
+    private string ClassifyMarketRegime(decimal marketRate)
+    {
+        var minRate = _options.MinDailyRate;
+        var maxRate = Math.Max(minRate + 0.00000001m, _options.MaxDailyRate);
+        var span = maxRate - minRate;
+        var normalized = span <= 0m ? 0m : (marketRate - minRate) / span;
+
+        if (normalized <= 0.33m)
+            return "LOW";
+
+        if (normalized >= 0.66m)
+            return "HOT";
+
+        return "NORMAL";
+    }
+
+    private int GetMotorMaxWaitMinutes(string regime)
+    {
+        return regime switch
+        {
+            "HOT" => Math.Max(1, _options.MotorMaxWaitMinutesHotRegime),
+            "LOW" => Math.Max(1, _options.MotorMaxWaitMinutesLowRegime),
+            _ => Math.Max(1, _options.MotorMaxWaitMinutesNormalRegime)
+        };
+    }
+
+    private int GetOpportunisticMaxWaitMinutes(string regime)
+    {
+        return regime switch
+        {
+            "HOT" => Math.Max(1, _options.OpportunisticMaxWaitMinutesHotRegime),
+            "LOW" => Math.Max(1, _options.OpportunisticMaxWaitMinutesLowRegime),
+            _ => Math.Max(1, _options.OpportunisticMaxWaitMinutesNormalRegime)
+        };
+    }
+
+    private static decimal ClampFraction(decimal value)
+    {
+        return Math.Clamp(value, 0m, 1m);
     }
 
     private IReadOnlyList<string> GetPreferredSymbols()

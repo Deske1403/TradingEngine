@@ -910,6 +910,48 @@ Important operational note:
 - funding placement logic stays conservative and unchanged
 - the new slice is purely persistence, linkage, and accounting
 
+## Implemented on 2026-03-22 (Layered Shadow Planning)
+
+The first intelligent funding-engine scaffold is now present, but only in shadow mode.
+
+Added in code:
+
+- regime classification:
+  - `LOW`
+  - `NORMAL`
+  - `HOT`
+- per-symbol shadow bucket planning:
+  - `Motor`
+  - `Opportunistic`
+- configurable shadow parameters in `BitfinexFundingOptions`
+- telemetry snapshot type:
+  - `funding_shadow_plan`
+
+What this does:
+
+- every funding cycle now computes a shadow allocation plan for each preferred symbol
+- the plan includes:
+  - regime
+  - lendable balance
+  - bucket sizing
+  - target rate per bucket
+  - target duration
+  - max wait budget
+- the plan is logged as `[BFX-FUND-SHADOW]`
+- the plan is persisted only to telemetry snapshots
+
+What this does not do:
+
+- it does not change current live placement logic
+- it does not place multiple offers
+- it does not override current reserve logic
+- it does not change the current 2-day conservative live path
+
+Reason for this approach:
+
+- we can keep pushing the funding engine forward while live funding stays stable
+- we get real runtime observations for `Motor / Opportunistic` before those layers are allowed to control capital
+
 ## Practical test recipe
 
 Current implementation status in this repo:

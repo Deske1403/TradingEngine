@@ -46,6 +46,11 @@ What is now also implemented in code and schema, pending next runtime verificati
 - wallet delta classification metadata for funding wallet snapshots
 - unique `ledger_id`-based funding payment deduplication
 - normalized principal/interest business events layered on top of raw exchange truth
+- layered allocation scaffold in shadow mode:
+  - `Motor`
+  - `Opportunistic`
+  - regime classification `LOW / NORMAL / HOT`
+  - `funding_shadow_plan` telemetry snapshots
 
 This means the basic funding runtime is already real and working.
 
@@ -394,6 +399,13 @@ Goal:
 
 - capital keeps flowing
 
+Status:
+
+- first implementation is now added in `shadow mode`
+- current live placement logic is unchanged
+- the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
+- next task is to compare those plans against real market behavior before allowing them to drive live placement
+
 ### Step 5. Add Opportunistic Layer
 
 Introduce a second bucket with:
@@ -405,6 +417,11 @@ Introduce a second bucket with:
 Goal:
 
 - improve yield without sacrificing utilization too much
+
+Status:
+
+- first shadow allocation scaffold now exists alongside `Motor`
+- current implementation is telemetry-first and not yet allowed to mutate live offers
 
 ### Step 6. Measure Before Expanding
 

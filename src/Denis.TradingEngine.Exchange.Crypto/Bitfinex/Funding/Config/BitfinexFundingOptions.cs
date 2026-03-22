@@ -65,4 +65,26 @@ public sealed class BitfinexFundingOptions
     public bool UsePrivateWebSocket { get; set; } = true;
 
     public bool AllowManagingExternalOffers { get; set; }
+
+    public bool LayeredShadowEnabled { get; set; } = true;
+
+    public decimal MotorAllocationFraction { get; set; } = 0.70m;
+
+    public decimal OpportunisticAllocationFraction { get; set; } = 0.30m;
+
+    public decimal MotorRateMultiplier { get; set; } = 0.97m;
+
+    public decimal OpportunisticRateMultiplier { get; set; } = 1.08m;
+
+    public int MotorMaxWaitMinutesLowRegime { get; set; } = 20;
+
+    public int MotorMaxWaitMinutesNormalRegime { get; set; } = 12;
+
+    public int MotorMaxWaitMinutesHotRegime { get; set; } = 5;
+
+    public int OpportunisticMaxWaitMinutesLowRegime { get; set; } = 120;
+
+    public int OpportunisticMaxWaitMinutesNormalRegime { get; set; } = 60;
+
+    public int OpportunisticMaxWaitMinutesHotRegime { get; set; } = 20;
 }
