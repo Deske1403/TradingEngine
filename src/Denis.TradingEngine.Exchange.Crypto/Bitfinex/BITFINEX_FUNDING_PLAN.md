@@ -1022,6 +1022,42 @@ Important operational note:
 - this slice still does not mutate live offers
 - it exists so we can lower reserve later with a ready-made `+1` shadow step already running beside the current live logic
 
+## Implemented on 2026-03-23 (Stateful Shadow Sessions)
+
+The shadow layer now has a small lifecycle of its own, instead of only isolated per-cycle rows.
+
+Added in code:
+
+- stateful shadow session tracking across consecutive funding cycles
+- session close reasons such as:
+  - `live_offer_became_active`
+  - `shadow_no_longer_actionable`
+- dedicated session log prefix:
+  - `[BFX-FUND-SHADOW-SESSION]`
+- telemetry snapshot type:
+  - `funding_shadow_session`
+
+Added in schema:
+
+- `funding_shadow_action_sessions`
+- `v_funding_shadow_session_vs_actual`
+
+What this enables:
+
+- observing `wait / place / fallback / closed` as one coherent shadow mini-journey
+- distinguishing:
+  - a shadow idea that stayed active
+  - a shadow idea that became a real live offer
+  - a shadow idea that expired because the market or available balance changed
+- getting one more useful bridge between today's shadow system and tomorrow's promoted live `Motor` step
+
+Important operational note:
+
+- this slice still does not change live placement behavior
+- it exists so the next promotion step has both:
+  - stateless shadow rows
+  - stateful shadow session history
+
 ## Practical test recipe
 
 Current implementation status in this repo:

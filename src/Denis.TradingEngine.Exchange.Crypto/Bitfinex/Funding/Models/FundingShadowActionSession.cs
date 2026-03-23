@@ -1,0 +1,36 @@
+#nullable enable
+
+namespace Denis.TradingEngine.Exchange.Crypto.Bitfinex.Funding.Models;
+
+public sealed record FundingShadowActionSession(
+    string SessionKey,
+    string Symbol,
+    string Currency,
+    string Bucket,
+    string FirstRegime,
+    string CurrentRegime,
+    string FirstAction,
+    string CurrentAction,
+    string Status,
+    bool IsActionable,
+    decimal AvailableBalance,
+    decimal LendableBalance,
+    decimal AllocationAmount,
+    decimal AllocationFraction,
+    decimal? TargetRateInitial,
+    decimal? TargetRateCurrent,
+    decimal? FallbackRate,
+    int? TargetPeriodDays,
+    int? MaxWaitMinutes,
+    DateTime OpenedUtc,
+    DateTime LastUpdatedUtc,
+    DateTime? DecisionDeadlineUtc,
+    DateTime? ClosedUtc,
+    long? ActiveOfferId,
+    decimal? ActiveOfferRate,
+    decimal? ActiveOfferAmount,
+    string? ActiveOfferStatus,
+    string? Resolution,
+    int UpdateCount,
+    string Summary,
+    object? Metadata = null);

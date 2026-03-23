@@ -58,6 +58,9 @@ What is now also implemented in code and schema, pending next runtime verificati
   - shadow next-step policy layer:
     - `funding_shadow_actions`
     - `v_funding_shadow_action_vs_actual`
+  - stateful shadow session layer:
+    - `funding_shadow_action_sessions`
+    - `v_funding_shadow_session_vs_actual`
 
 This means the basic funding runtime is already real and working.
 
@@ -421,6 +424,9 @@ Status:
   - `would_wait_then_fallback`
 - those actions persist into `funding_shadow_actions`
 - latest shadow policy can now be compared against live actions and book outcomes through `v_funding_shadow_action_vs_actual`
+- the shadow layer now also groups consecutive action-policy observations into stateful sessions
+- those sessions persist into `funding_shadow_action_sessions`
+- latest session state can now be compared against live actions and book outcomes through `v_funding_shadow_session_vs_actual`
 - next task is to validate that shadow plan + shadow action storage stay coherent over real return cycles before allowing those plans to drive live placement
 
 ### Step 5. Add Opportunistic Layer
@@ -443,6 +449,7 @@ Status:
   - telemetry snapshots
   - dedicated funding-table storage and joined reporting against actual realized outcomes
 - the shadow layer now also emits explicit action policy, so we can measure the next safe promotion step before lowering reserve and re-enabling live re-entry
+- the shadow layer now also keeps short-lived stateful sessions so `wait -> fallback -> placed/closed` can be observed as a coherent mini-journey instead of isolated rows
 
 ### Step 6. Measure Before Expanding
 

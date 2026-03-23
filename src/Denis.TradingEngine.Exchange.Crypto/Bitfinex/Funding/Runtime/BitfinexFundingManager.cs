@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Text.Json;
 using Denis.TradingEngine.Data.Repositories;
 using Denis.TradingEngine.Data.Repositories.Funding;
 using Denis.TradingEngine.Exchange.Crypto.Bitfinex.Funding.Api;
@@ -22,9 +23,11 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private readonly object _sync = new();
     private readonly object _offersSync = new();
     private readonly object _walletsSync = new();
+    private readonly object _shadowSync = new();
     private readonly Dictionary<string, FundingOfferInfo> _activeOffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _managedOfferIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FundingWalletBalance> _latestWalletBalances = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FundingShadowActionSession> _shadowActionSessions = new(StringComparer.OrdinalIgnoreCase);
 
     private CancellationTokenSource? _linkedCts;
     private Task? _loopTask;
@@ -243,6 +246,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         LogShadowPlans(shadowPlans);
         var shadowActions = BuildShadowActions(shadowPlans, activeOffers);
         LogShadowActions(shadowActions);
+        var shadowSessions = BuildShadowActionSessions(shadowActions, activeOffers);
+        LogShadowActionSessions(shadowSessions);
 
         FundingLifecycleSyncResult lifecycleSync = FundingLifecycleSyncResult.Empty;
         if (ShouldRefreshLifecycleFromRest())
@@ -250,8 +255,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             lifecycleSync = await SyncLifecycleStateAsync(preferredSymbols, ct).ConfigureAwait(false);
         }
 
-        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, lifecycleSync);
-        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
+        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, shadowSessions, lifecycleSync);
+        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, shadowSessions, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
     }
 
     private FundingPlacementCandidate? TryBuildPlacementCandidate(
@@ -673,20 +678,21 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferActionResult> actionResults,
         IReadOnlyList<FundingShadowPlan> shadowPlans,
         IReadOnlyList<FundingShadowAction> shadowActions,
+        IReadOnlyList<FundingShadowActionSession> shadowSessions,
         FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealth,
         CancellationToken ct)
     {
         if (_fundingRepo is not null)
         {
-            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, lifecycleSync, runtimeHealth);
+            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, shadowSessions, lifecycleSync, runtimeHealth);
             await _fundingRepo.PersistCycleAsync(batch, ct).ConfigureAwait(false);
         }
 
         if (_snapshotRepo is null)
             return;
 
-        var records = new List<CryptoSnapshotRecord>(wallets.Count + tickers.Count + activeOffers.Count + decisions.Count + actionResults.Count + shadowPlans.Count + shadowActions.Count + 1);
+        var records = new List<CryptoSnapshotRecord>(wallets.Count + tickers.Count + activeOffers.Count + decisions.Count + actionResults.Count + shadowPlans.Count + shadowActions.Count + shadowSessions.Count + 1);
 
         foreach (var wallet in wallets)
         {
@@ -765,6 +771,17 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ));
         }
 
+        foreach (var shadowSession in shadowSessions)
+        {
+            records.Add(new CryptoSnapshotRecord(
+                Utc: shadowSession.LastUpdatedUtc,
+                Exchange: "bitfinex",
+                Symbol: shadowSession.Symbol,
+                SnapshotType: "funding_shadow_session",
+                Data: shadowSession
+            ));
+        }
+
         records.Add(new CryptoSnapshotRecord(
             Utc: DateTime.UtcNow,
             Exchange: "bitfinex",
@@ -784,6 +801,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferActionResult> actionResults,
         IReadOnlyList<FundingShadowPlan> shadowPlans,
         IReadOnlyList<FundingShadowAction> shadowActions,
+        IReadOnlyList<FundingShadowActionSession> shadowSessions,
         FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealthMetadata)
     {
@@ -890,6 +908,10 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .Select(ToShadowActionRecord)
             .ToArray();
 
+        var shadowSessionRows = shadowSessions
+            .Select(ToShadowActionSessionRecord)
+            .ToArray();
+
         var runtimeHealth = CreateRuntimeHealthRecord(runtimeHealthMetadata);
 
         return new FundingPersistenceBatch(
@@ -900,6 +922,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             OfferEvents: eventRows,
             ShadowPlans: shadowRows,
             ShadowActions: shadowActionRows,
+            ShadowSessions: shadowSessionRows,
             Credits: lifecycleSync.Credits,
             Loans: lifecycleSync.Loans,
             Trades: lifecycleSync.Trades,
@@ -1012,6 +1035,43 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             });
     }
 
+    private FundingShadowActionSessionRecord ToShadowActionSessionRecord(FundingShadowActionSession session)
+    {
+        return new FundingShadowActionSessionRecord(
+            Exchange: "bitfinex",
+            SessionKey: session.SessionKey,
+            Symbol: session.Symbol,
+            Currency: session.Currency,
+            Bucket: session.Bucket,
+            FirstRegime: session.FirstRegime,
+            CurrentRegime: session.CurrentRegime,
+            FirstAction: session.FirstAction,
+            CurrentAction: session.CurrentAction,
+            Status: session.Status,
+            IsActionable: session.IsActionable,
+            AvailableBalance: session.AvailableBalance,
+            LendableBalance: session.LendableBalance,
+            AllocationAmount: session.AllocationAmount,
+            AllocationFraction: session.AllocationFraction,
+            TargetRateInitial: session.TargetRateInitial,
+            TargetRateCurrent: session.TargetRateCurrent,
+            FallbackRate: session.FallbackRate,
+            TargetPeriodDays: session.TargetPeriodDays,
+            MaxWaitMinutes: session.MaxWaitMinutes,
+            OpenedUtc: session.OpenedUtc,
+            LastUpdatedUtc: session.LastUpdatedUtc,
+            DecisionDeadlineUtc: session.DecisionDeadlineUtc,
+            ClosedUtc: session.ClosedUtc,
+            ActiveOfferId: session.ActiveOfferId,
+            ActiveOfferRate: session.ActiveOfferRate,
+            ActiveOfferAmount: session.ActiveOfferAmount,
+            ActiveOfferStatus: session.ActiveOfferStatus,
+            Resolution: session.Resolution,
+            UpdateCount: session.UpdateCount,
+            Summary: session.Summary,
+            Metadata: session.Metadata);
+    }
+
     private static string CreateShadowPlanKey(string symbol, DateTime timestampUtc, string bucket)
     {
         return $"{symbol}:{timestampUtc:O}:{bucket}";
@@ -1020,6 +1080,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private static string CreateShadowActionKey(string symbol, DateTime timestampUtc, string bucket, string action)
     {
         return $"{symbol}:{timestampUtc:O}:{bucket}:{action}";
+    }
+
+    private static string CreateShadowSessionSlotKey(string symbol, string bucket)
+    {
+        return $"{symbol}|{bucket}";
+    }
+
+    private static string CreateShadowSessionKey(string symbol, string bucket, DateTime openedUtc)
+    {
+        return $"{symbol}:{bucket}:{openedUtc:O}";
     }
 
     private bool ShouldRefreshLifecycleFromRest()
@@ -2377,6 +2447,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferActionResult> actionResults,
         IReadOnlyList<FundingShadowPlan> shadowPlans,
         IReadOnlyList<FundingShadowAction> shadowActions,
+        IReadOnlyList<FundingShadowActionSession> shadowSessions,
         FundingLifecycleSyncResult lifecycleSync)
     {
         return new
@@ -2393,6 +2464,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ActionResultCount = actionResults.Count,
             ShadowPlanCount = shadowPlans.Count,
             ShadowActionCount = shadowActions.Count,
+            ShadowSessionCount = shadowSessions.Count,
             UsePrivateWebSocket = _options.UsePrivateWebSocket,
             PrivateWsLastMessageUtc = _privateFeed?.LastMessageUtc,
             LastRestOfferSyncUtc = _lastOfferStateSyncUtc == default ? (DateTime?)null : _lastOfferStateSyncUtc,
@@ -2871,6 +2943,196 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 action.IsActionable,
                 action.Summary);
         }
+    }
+
+    private IReadOnlyList<FundingShadowActionSession> BuildShadowActionSessions(
+        IReadOnlyList<FundingShadowAction> shadowActions,
+        IReadOnlyList<FundingOfferInfo> activeOffers)
+    {
+        if (!_options.LayeredShadowEnabled)
+            return Array.Empty<FundingShadowActionSession>();
+
+        var touched = new List<FundingShadowActionSession>();
+        var seenSlotKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var latestUtc = shadowActions.Count == 0
+            ? DateTime.UtcNow
+            : shadowActions.Max(static action => action.TimestampUtc);
+
+        lock (_shadowSync)
+        {
+            foreach (var action in shadowActions.Where(static action => !string.Equals(action.Bucket, "NONE", StringComparison.OrdinalIgnoreCase)))
+            {
+                var slotKey = CreateShadowSessionSlotKey(action.Symbol, action.Bucket);
+                seenSlotKeys.Add(slotKey);
+
+                if (_shadowActionSessions.TryGetValue(slotKey, out var existing))
+                {
+                    var updated = existing with
+                    {
+                        CurrentRegime = action.Regime,
+                        CurrentAction = action.Action,
+                        Status = MapShadowActionToSessionStatus(action.Action),
+                        IsActionable = action.IsActionable,
+                        AvailableBalance = action.AvailableBalance,
+                        LendableBalance = action.LendableBalance,
+                        AllocationAmount = action.AllocationAmount,
+                        AllocationFraction = action.AllocationFraction,
+                        TargetRateCurrent = action.TargetRate,
+                        FallbackRate = action.FallbackRate,
+                        TargetPeriodDays = action.TargetPeriodDays,
+                        MaxWaitMinutes = action.MaxWaitMinutes,
+                        LastUpdatedUtc = action.TimestampUtc,
+                        DecisionDeadlineUtc = action.DecisionDeadlineUtc,
+                        ActiveOfferId = action.ActiveOfferId,
+                        ActiveOfferRate = action.ActiveOfferRate,
+                        ActiveOfferAmount = action.ActiveOfferAmount,
+                        ActiveOfferStatus = action.ActiveOfferStatus,
+                        Summary = action.Summary,
+                        Metadata = SerializeShadowSessionMetadata(action, existing.UpdateCount + 1),
+                        UpdateCount = existing.UpdateCount + 1
+                    };
+
+                    _shadowActionSessions[slotKey] = updated;
+                    touched.Add(updated);
+                    continue;
+                }
+
+                var opened = new FundingShadowActionSession(
+                    SessionKey: CreateShadowSessionKey(action.Symbol, action.Bucket, action.TimestampUtc),
+                    Symbol: action.Symbol,
+                    Currency: action.Currency,
+                    Bucket: action.Bucket,
+                    FirstRegime: action.Regime,
+                    CurrentRegime: action.Regime,
+                    FirstAction: action.Action,
+                    CurrentAction: action.Action,
+                    Status: MapShadowActionToSessionStatus(action.Action),
+                    IsActionable: action.IsActionable,
+                    AvailableBalance: action.AvailableBalance,
+                    LendableBalance: action.LendableBalance,
+                    AllocationAmount: action.AllocationAmount,
+                    AllocationFraction: action.AllocationFraction,
+                    TargetRateInitial: action.TargetRate,
+                    TargetRateCurrent: action.TargetRate,
+                    FallbackRate: action.FallbackRate,
+                    TargetPeriodDays: action.TargetPeriodDays,
+                    MaxWaitMinutes: action.MaxWaitMinutes,
+                    OpenedUtc: action.TimestampUtc,
+                    LastUpdatedUtc: action.TimestampUtc,
+                    DecisionDeadlineUtc: action.DecisionDeadlineUtc,
+                    ClosedUtc: null,
+                    ActiveOfferId: action.ActiveOfferId,
+                    ActiveOfferRate: action.ActiveOfferRate,
+                    ActiveOfferAmount: action.ActiveOfferAmount,
+                    ActiveOfferStatus: action.ActiveOfferStatus,
+                    Resolution: null,
+                    UpdateCount: 1,
+                    Summary: action.Summary,
+                    Metadata: SerializeShadowSessionMetadata(action, 1));
+
+                _shadowActionSessions[slotKey] = opened;
+                touched.Add(opened);
+            }
+
+            var staleSlotKeys = _shadowActionSessions.Keys
+                .Where(slotKey => !seenSlotKeys.Contains(slotKey))
+                .ToArray();
+
+            foreach (var slotKey in staleSlotKeys)
+            {
+                var existing = _shadowActionSessions[slotKey];
+                var liveOffer = activeOffers
+                    .Where(offer => string.Equals(offer.Symbol, existing.Symbol, StringComparison.OrdinalIgnoreCase) && offer.IsActive)
+                    .OrderByDescending(offer => offer.UpdatedUtc ?? offer.CreatedUtc ?? DateTime.MinValue)
+                    .FirstOrDefault();
+
+                var resolution = liveOffer is not null
+                    ? "live_offer_became_active"
+                    : "shadow_no_longer_actionable";
+                var closedStatus = liveOffer is not null
+                    ? "closed_live_offer_active"
+                    : "closed_no_actionable_bucket";
+
+                var closed = existing with
+                {
+                    Status = closedStatus,
+                    IsActionable = false,
+                    LastUpdatedUtc = latestUtc,
+                    ClosedUtc = latestUtc,
+                    ActiveOfferId = liveOffer is null ? existing.ActiveOfferId : TryParseLongId(liveOffer.OfferId),
+                    ActiveOfferRate = liveOffer?.Rate ?? existing.ActiveOfferRate,
+                    ActiveOfferAmount = liveOffer is null ? existing.ActiveOfferAmount : Math.Abs(liveOffer.Amount),
+                    ActiveOfferStatus = liveOffer?.Status ?? existing.ActiveOfferStatus,
+                    Resolution = resolution,
+                    Summary = liveOffer is not null
+                        ? $"{existing.Bucket} shadow session closed because a live offer became active."
+                        : $"{existing.Bucket} shadow session closed because the idea is no longer actionable.",
+                    Metadata = SerializeShadowSessionCloseMetadata(existing, liveOffer, resolution),
+                    UpdateCount = existing.UpdateCount + 1
+                };
+
+                _shadowActionSessions.Remove(slotKey);
+                touched.Add(closed);
+            }
+        }
+
+        return touched;
+    }
+
+    private void LogShadowActionSessions(IReadOnlyList<FundingShadowActionSession> shadowSessions)
+    {
+        if (!_options.LayeredShadowEnabled || shadowSessions.Count == 0)
+            return;
+
+        foreach (var session in shadowSessions)
+        {
+            _log.Information(
+                "[BFX-FUND-SHADOW-SESSION] symbol={Symbol} bucket={Bucket} status={Status} action={Action} resolution={Resolution}",
+                session.Symbol,
+                session.Bucket,
+                session.Status,
+                session.CurrentAction,
+                session.Resolution);
+        }
+    }
+
+    private static string MapShadowActionToSessionStatus(string action)
+    {
+        return action switch
+        {
+            "would_place_now" => "ready_now",
+            "would_wait_for_better_rate" => "waiting",
+            "would_wait_then_fallback" => "waiting_fallback",
+            "would_reprice_active_offer" => "reprice_ready",
+            "would_keep_active_offer" => "aligned_with_live_offer",
+            _ => "observing"
+        };
+    }
+
+    private static object SerializeShadowSessionMetadata(FundingShadowAction action, int updateCount)
+    {
+        return new
+        {
+            action.Regime,
+            action.Action,
+            action.FallbackBucket,
+            action.ActiveOfferCount,
+            UpdateCount = updateCount
+        };
+    }
+
+    private static object SerializeShadowSessionCloseMetadata(FundingShadowActionSession session, FundingOfferInfo? liveOffer, string resolution)
+    {
+        return new
+        {
+            session.FirstAction,
+            session.CurrentAction,
+            session.FirstRegime,
+            session.CurrentRegime,
+            Resolution = resolution,
+            LiveOfferId = liveOffer?.OfferId,
+            LiveOfferStatus = liveOffer?.Status
+        };
     }
 
     private decimal SelectShadowRate(decimal marketRate, decimal multiplier)
