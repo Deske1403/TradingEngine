@@ -424,6 +424,12 @@ Status:
   - `LOW / NORMAL / HOT` classification
   - bounded premium via regime multipliers
   - clamp to configured rate band
+- live now also supports symbol-specific runtime profiles so `fUSD` and `fUST` can diverge safely on:
+  - `Enabled`
+  - `PauseNewOffers`
+  - `MinOfferAmount`
+  - `MaxOfferAmount`
+  - `ReserveAmount`
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`

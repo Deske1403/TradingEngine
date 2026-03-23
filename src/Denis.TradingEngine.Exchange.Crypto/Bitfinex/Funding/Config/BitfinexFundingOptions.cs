@@ -24,6 +24,8 @@ public sealed class BitfinexFundingOptions
 
     public List<string> PreferredSymbols { get; set; } = new();
 
+    public List<BitfinexFundingSymbolProfile> SymbolProfiles { get; set; } = new();
+
     public decimal MinOfferAmount { get; set; } = 150m;
 
     public decimal MaxOfferAmount { get; set; } = 250m;

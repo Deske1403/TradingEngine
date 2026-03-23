@@ -266,9 +266,31 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         out FundingDecision? skipDecision)
     {
         var nowUtc = DateTime.UtcNow;
+        var symbolSettings = ResolveSymbolSettings(fundingSymbol);
         var currency = FundingSymbolToCurrency(fundingSymbol);
         var wallet = FindWalletBalance(wallets, currency);
         var walletType = _options.UseFundingWalletOnly ? "funding" : "any";
+
+        if (!symbolSettings.Enabled)
+        {
+            skipDecision = new FundingDecision(
+                Action: "skip_symbol_disabled",
+                IsDryRun: _options.DryRun,
+                IsActionable: false,
+                Symbol: fundingSymbol,
+                Currency: currency,
+                WalletType: walletType,
+                AvailableBalance: 0m,
+                LendableBalance: 0m,
+                ProposedAmount: null,
+                ProposedRate: null,
+                ProposedPeriodDays: null,
+                Reason: "Funding symbol is disabled by symbol profile.",
+                TimestampUtc: nowUtc
+            );
+
+            return null;
+        }
 
         if (wallet is null)
         {
@@ -335,7 +357,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             return null;
         }
 
-        var lendable = Math.Max(0m, wallet.Available - _options.ReserveAmount);
+        var lendable = Math.Max(0m, wallet.Available - symbolSettings.ReserveAmount);
         if (lendable <= 0m)
         {
             skipDecision = new FundingDecision(
@@ -357,8 +379,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             return null;
         }
 
-        var proposedAmount = Math.Min(lendable, _options.MaxOfferAmount);
-        if (proposedAmount < _options.MinOfferAmount)
+        var proposedAmount = Math.Min(lendable, symbolSettings.MaxOfferAmount);
+        if (proposedAmount < symbolSettings.MinOfferAmount)
         {
             skipDecision = new FundingDecision(
                 Action: "skip_below_min_offer",
@@ -379,7 +401,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             return null;
         }
 
-        var (proposedRate, rateSelectionSummary) = SelectLiveRate(ticker);
+        var (proposedRate, rateSelectionSummary) = SelectLiveRate(ticker, symbolSettings);
         var minPeriodDays = Math.Max(2, _options.MinPeriodDays);
         var maxPeriodDays = Math.Max(minPeriodDays, _options.MaxPeriodDays);
         var proposedPeriod = Math.Clamp(_options.DefaultPeriodDays, minPeriodDays, maxPeriodDays);
@@ -404,7 +426,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             AvailableBalance: wallet.Available,
             LendableBalance: lendable,
             Request: request,
-            RateSelectionSummary: rateSelectionSummary
+            RateSelectionSummary: rateSelectionSummary,
+            PauseNewOffers: symbolSettings.PauseNewOffers
         );
     }
 
@@ -413,6 +436,29 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers)
     {
         var nowUtc = DateTime.UtcNow;
+
+        if (candidate.PauseNewOffers)
+        {
+            return new FundingDecision(
+                Action: activeOffers.Count == 0
+                    ? "skip_symbol_paused"
+                    : "skip_symbol_paused_active_exists",
+                IsDryRun: _options.DryRun,
+                IsActionable: false,
+                Symbol: candidate.Symbol,
+                Currency: candidate.Currency,
+                WalletType: candidate.WalletType,
+                AvailableBalance: candidate.AvailableBalance,
+                LendableBalance: candidate.LendableBalance,
+                ProposedAmount: candidate.Request.Amount,
+                ProposedRate: candidate.Request.Rate,
+                ProposedPeriodDays: candidate.Request.PeriodDays,
+                Reason: activeOffers.Count == 0
+                    ? $"Funding symbol is paused by symbol profile. {candidate.RateSelectionSummary}"
+                    : $"Funding symbol is paused by symbol profile while an active offer already exists. {candidate.RateSelectionSummary}",
+                TimestampUtc: nowUtc
+            );
+        }
 
         if (activeOffers.Count > 1)
         {
@@ -2603,36 +2649,46 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         foreach (var symbol in preferredSymbols)
         {
+            var symbolSettings = ResolveSymbolSettings(symbol);
+            if (!symbolSettings.Enabled)
+                continue;
+
             var currency = FundingSymbolToCurrency(symbol);
             var wallet = FindWalletBalance(wallets, currency);
             var ticker = tickers.FirstOrDefault(t => string.Equals(t.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
             if (wallet is null || ticker is null)
                 continue;
 
-            var lendable = Math.Max(0m, wallet.Available - _options.ReserveAmount);
+            var lendable = Math.Max(0m, wallet.Available - symbolSettings.ReserveAmount);
             var marketRate = ticker.AskRate > 0m ? ticker.AskRate : ticker.BidRate;
             var regime = ClassifyMarketRegime(marketRate);
             var timestampUtc = DateTime.UtcNow;
             var buckets = new List<FundingShadowBucket>(2);
 
-            if (lendable >= _options.MinOfferAmount)
+            if (lendable >= symbolSettings.MinOfferAmount)
             {
-                var motorTargetAmount = decimal.Round(lendable * normalizedMotorFraction, 8, MidpointRounding.ToZero);
-                var opportunisticTargetAmount = decimal.Round(lendable * normalizedOppFraction, 8, MidpointRounding.ToZero);
+                var motorTargetAmount = decimal.Round(
+                    Math.Min(lendable * normalizedMotorFraction, symbolSettings.MaxOfferAmount),
+                    8,
+                    MidpointRounding.ToZero);
+                var opportunisticTargetAmount = decimal.Round(
+                    Math.Min(lendable * normalizedOppFraction, symbolSettings.MaxOfferAmount),
+                    8,
+                    MidpointRounding.ToZero);
 
-                if (motorTargetAmount < _options.MinOfferAmount)
+                if (motorTargetAmount < symbolSettings.MinOfferAmount)
                 {
                     motorTargetAmount = 0m;
                 }
 
-                if (opportunisticTargetAmount < _options.MinOfferAmount)
+                if (opportunisticTargetAmount < symbolSettings.MinOfferAmount)
                 {
                     opportunisticTargetAmount = 0m;
                 }
 
                 if (motorTargetAmount == 0m && opportunisticTargetAmount == 0m)
                 {
-                    motorTargetAmount = decimal.Round(Math.Min(lendable, _options.MaxOfferAmount), 8, MidpointRounding.ToZero);
+                    motorTargetAmount = decimal.Round(Math.Min(lendable, symbolSettings.MaxOfferAmount), 8, MidpointRounding.ToZero);
                 }
 
                 if (motorTargetAmount > 0m)
@@ -2663,7 +2719,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             }
 
             var summary = buckets.Count == 0
-                ? $"No shadow bucket actionable. lendable={lendable:F2} reserve={_options.ReserveAmount:F2} minOffer={_options.MinOfferAmount:F2} regime={regime}"
+                ? $"No shadow bucket actionable. lendable={lendable:F2} reserve={symbolSettings.ReserveAmount:F2} minOffer={symbolSettings.MinOfferAmount:F2} regime={regime}"
                 : string.Join("; ", buckets.Select(bucket =>
                     $"{bucket.Bucket} amt={bucket.AllocationAmount:F2} rate={bucket.TargetRate:E6} wait={bucket.MaxWaitMinutes}m"));
 
@@ -3142,7 +3198,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         return Math.Clamp(scaled, _options.MinDailyRate, _options.MaxDailyRate);
     }
 
-    private (decimal Rate, string Summary) SelectLiveRate(FundingTickerSnapshot ticker)
+    private (decimal Rate, string Summary) SelectLiveRate(FundingTickerSnapshot ticker, FundingSymbolRuntimeSettings symbolSettings)
     {
         var askRate = ticker.AskRate > 0m ? ticker.AskRate : 0m;
         var bidRate = ticker.BidRate > 0m ? ticker.BidRate : 0m;
@@ -3189,7 +3245,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 };
 
                 selectedRate = Math.Clamp(anchor * multiplier, _options.MinDailyRate, _options.MaxDailyRate);
-                summary = $"rate_mode=SmartRegime regime={regime} anchor={anchor:E6} mult={multiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                summary = $"rate_mode=SmartRegime regime={regime} anchor={anchor:E6} mult={multiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} pause={symbolSettings.PauseNewOffers} reserve={symbolSettings.ReserveAmount:F2}";
                 break;
         }
 
@@ -3265,6 +3321,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         var configuredSymbols = _options.PreferredSymbols
             .Where(static s => !string.IsNullOrWhiteSpace(s))
             .Select(BitfinexFundingSymbolNormalizer.Normalize)
+            .Where(symbol => ResolveSymbolSettings(symbol).Enabled)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
@@ -3275,8 +3332,28 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         return BitfinexFundingOptions.DefaultPreferredSymbols
             .Select(BitfinexFundingSymbolNormalizer.Normalize)
+            .Where(symbol => ResolveSymbolSettings(symbol).Enabled)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private FundingSymbolRuntimeSettings ResolveSymbolSettings(string fundingSymbol)
+    {
+        var normalizedSymbol = BitfinexFundingSymbolNormalizer.Normalize(fundingSymbol);
+        var profile = _options.SymbolProfiles
+            .FirstOrDefault(profile => string.Equals(
+                BitfinexFundingSymbolNormalizer.Normalize(profile.Symbol),
+                normalizedSymbol,
+                StringComparison.OrdinalIgnoreCase));
+
+        return new FundingSymbolRuntimeSettings(
+            Symbol: normalizedSymbol,
+            Enabled: profile?.Enabled ?? true,
+            PauseNewOffers: profile?.PauseNewOffers ?? false,
+            MinOfferAmount: profile?.MinOfferAmount ?? _options.MinOfferAmount,
+            MaxOfferAmount: profile?.MaxOfferAmount ?? _options.MaxOfferAmount,
+            ReserveAmount: profile?.ReserveAmount ?? _options.ReserveAmount
+        );
     }
 
     private static string FundingSymbolToCurrency(string fundingSymbol)
@@ -3385,7 +3462,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal AvailableBalance,
         decimal LendableBalance,
         FundingOfferRequest Request,
-        string RateSelectionSummary);
+        string RateSelectionSummary,
+        bool PauseNewOffers);
+
+    private sealed record FundingSymbolRuntimeSettings(
+        string Symbol,
+        bool Enabled,
+        bool PauseNewOffers,
+        decimal MinOfferAmount,
+        decimal MaxOfferAmount,
+        decimal ReserveAmount);
 
     private sealed record FundingLifecycleAllocationCandidate(
         string Kind,

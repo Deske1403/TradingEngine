@@ -1276,6 +1276,30 @@ Important boundary:
 - this slice only improves live rate selection
 - it does not yet make live placement fully shadow-driven
 
+## Per-symbol funding profiles
+
+Funding config now also supports symbol-specific overrides so `fUSD` and `fUST` no longer have to share one blunt global runtime shape.
+
+Current per-symbol controls:
+
+- `Enabled`
+- `PauseNewOffers`
+- `MinOfferAmount`
+- `MaxOfferAmount`
+- `ReserveAmount`
+
+Practical meaning:
+
+- one symbol can be paused while another stays live
+- one symbol can keep a larger reserve while another stays more active
+- one symbol can be disabled without removing it from the general funding module
+
+Important boundary:
+
+- profile pause only blocks new live offer creation
+- it does not hide the symbol from lifecycle/accounting truth
+- shadow telemetry may still observe what the engine would have wanted to do
+
 ## Remaining open items
 
 ### 1. Full funding lifecycle persistence
