@@ -985,6 +985,43 @@ Important operational note:
 - it is measurement infrastructure only
 - the next runtime restart is required before `funding_shadow_plans` begins filling from the new code
 
+## Implemented on 2026-03-23 (Shadow Action Policy)
+
+The next logical `+1` funding-engine step is now also present in shadow mode.
+
+Added in code:
+
+- per-bucket shadow action policy on top of the shadow plan:
+  - `would_place_now`
+  - `would_wait_for_better_rate`
+  - `would_reprice_active_offer`
+  - `would_keep_active_offer`
+  - `would_wait_then_fallback`
+  - `would_hold_no_actionable_bucket`
+- dedicated log prefix:
+  - `[BFX-FUND-SHADOW-ACT]`
+- telemetry snapshot type:
+  - `funding_shadow_action`
+
+Added in schema:
+
+- `funding_shadow_actions`
+- `v_funding_shadow_action_vs_actual`
+
+What this enables:
+
+- keeping the current live funding behavior stable
+- computing and persisting the next safe policy step ahead of promotion
+- comparing:
+  - what the shadow engine would do now
+  - what the live engine actually did
+  - what the funding book later realized
+
+Important operational note:
+
+- this slice still does not mutate live offers
+- it exists so we can lower reserve later with a ready-made `+1` shadow step already running beside the current live logic
+
 ## Practical test recipe
 
 Current implementation status in this repo:

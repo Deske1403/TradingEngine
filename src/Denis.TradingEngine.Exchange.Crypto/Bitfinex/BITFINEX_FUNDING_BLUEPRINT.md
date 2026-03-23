@@ -55,6 +55,9 @@ What is now also implemented in code and schema, pending next runtime verificati
     - `funding_shadow_plans`
   - comparison/reporting view:
     - `v_funding_shadow_vs_actual`
+  - shadow next-step policy layer:
+    - `funding_shadow_actions`
+    - `v_funding_shadow_action_vs_actual`
 
 This means the basic funding runtime is already real and working.
 
@@ -410,7 +413,15 @@ Status:
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`
-- next task is to validate that dedicated shadow storage stays coherent over real return cycles before allowing those plans to drive live placement
+- the next shadow slice now also computes per-bucket next-step actions:
+  - `would_place_now`
+  - `would_wait_for_better_rate`
+  - `would_reprice_active_offer`
+  - `would_keep_active_offer`
+  - `would_wait_then_fallback`
+- those actions persist into `funding_shadow_actions`
+- latest shadow policy can now be compared against live actions and book outcomes through `v_funding_shadow_action_vs_actual`
+- next task is to validate that shadow plan + shadow action storage stay coherent over real return cycles before allowing those plans to drive live placement
 
 ### Step 5. Add Opportunistic Layer
 
@@ -431,6 +442,7 @@ Status:
 - the shadow layer now has both:
   - telemetry snapshots
   - dedicated funding-table storage and joined reporting against actual realized outcomes
+- the shadow layer now also emits explicit action policy, so we can measure the next safe promotion step before lowering reserve and re-enabling live re-entry
 
 ### Step 6. Measure Before Expanding
 

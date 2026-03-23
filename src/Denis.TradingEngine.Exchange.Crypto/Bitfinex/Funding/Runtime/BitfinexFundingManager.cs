@@ -241,6 +241,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         var shadowPlans = BuildShadowPlans(preferredSymbols, wallets, tickers);
         LogShadowPlans(shadowPlans);
+        var shadowActions = BuildShadowActions(shadowPlans, activeOffers);
+        LogShadowActions(shadowActions);
 
         FundingLifecycleSyncResult lifecycleSync = FundingLifecycleSyncResult.Empty;
         if (ShouldRefreshLifecycleFromRest())
@@ -248,8 +250,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             lifecycleSync = await SyncLifecycleStateAsync(preferredSymbols, ct).ConfigureAwait(false);
         }
 
-        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, lifecycleSync);
-        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
+        var runtimeHealth = BuildRuntimeHealthSnapshot(preferredSymbols, wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, lifecycleSync);
+        await PersistCycleAsync(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, lifecycleSync, runtimeHealth, ct).ConfigureAwait(false);
     }
 
     private FundingPlacementCandidate? TryBuildPlacementCandidate(
@@ -670,20 +672,21 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
         IReadOnlyList<FundingShadowPlan> shadowPlans,
+        IReadOnlyList<FundingShadowAction> shadowActions,
         FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealth,
         CancellationToken ct)
     {
         if (_fundingRepo is not null)
         {
-            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, lifecycleSync, runtimeHealth);
+            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, shadowActions, lifecycleSync, runtimeHealth);
             await _fundingRepo.PersistCycleAsync(batch, ct).ConfigureAwait(false);
         }
 
         if (_snapshotRepo is null)
             return;
 
-        var records = new List<CryptoSnapshotRecord>(wallets.Count + tickers.Count + activeOffers.Count + decisions.Count + actionResults.Count + shadowPlans.Count + 1);
+        var records = new List<CryptoSnapshotRecord>(wallets.Count + tickers.Count + activeOffers.Count + decisions.Count + actionResults.Count + shadowPlans.Count + shadowActions.Count + 1);
 
         foreach (var wallet in wallets)
         {
@@ -751,6 +754,17 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ));
         }
 
+        foreach (var shadowAction in shadowActions)
+        {
+            records.Add(new CryptoSnapshotRecord(
+                Utc: shadowAction.TimestampUtc,
+                Exchange: "bitfinex",
+                Symbol: shadowAction.Symbol,
+                SnapshotType: "funding_shadow_action",
+                Data: shadowAction
+            ));
+        }
+
         records.Add(new CryptoSnapshotRecord(
             Utc: DateTime.UtcNow,
             Exchange: "bitfinex",
@@ -769,6 +783,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
         IReadOnlyList<FundingShadowPlan> shadowPlans,
+        IReadOnlyList<FundingShadowAction> shadowActions,
         FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealthMetadata)
     {
@@ -871,6 +886,10 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .SelectMany(ToShadowPlanRecords)
             .ToArray();
 
+        var shadowActionRows = shadowActions
+            .Select(ToShadowActionRecord)
+            .ToArray();
+
         var runtimeHealth = CreateRuntimeHealthRecord(runtimeHealthMetadata);
 
         return new FundingPersistenceBatch(
@@ -880,6 +899,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Offers: offerRowsById.Values.ToArray(),
             OfferEvents: eventRows,
             ShadowPlans: shadowRows,
+            ShadowActions: shadowActionRows,
             Credits: lifecycleSync.Credits,
             Loans: lifecycleSync.Loans,
             Trades: lifecycleSync.Trades,
@@ -899,7 +919,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 new FundingShadowPlanRecord(
                     Utc: plan.TimestampUtc,
                     Exchange: "bitfinex",
-                    PlanKey: $"{plan.Symbol}:{plan.TimestampUtc:O}:NONE",
+                    PlanKey: CreateShadowPlanKey(plan.Symbol, plan.TimestampUtc, "NONE"),
                     Symbol: plan.Symbol,
                     Currency: plan.Currency,
                     Regime: plan.Regime,
@@ -928,7 +948,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .Select(bucket => new FundingShadowPlanRecord(
                 Utc: plan.TimestampUtc,
                 Exchange: "bitfinex",
-                PlanKey: $"{plan.Symbol}:{plan.TimestampUtc:O}:{bucket.Bucket}",
+                PlanKey: CreateShadowPlanKey(plan.Symbol, plan.TimestampUtc, bucket.Bucket),
                 Symbol: plan.Symbol,
                 Currency: plan.Currency,
                 Regime: plan.Regime,
@@ -951,6 +971,55 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     BucketCount = plan.Buckets.Count
                 }))
             .ToArray();
+    }
+
+    private FundingShadowActionRecord ToShadowActionRecord(FundingShadowAction action)
+    {
+        return new FundingShadowActionRecord(
+            Utc: action.TimestampUtc,
+            Exchange: "bitfinex",
+            ActionKey: CreateShadowActionKey(action.Symbol, action.TimestampUtc, action.Bucket, action.Action),
+            PlanKey: CreateShadowPlanKey(action.Symbol, action.TimestampUtc, action.Bucket),
+            Symbol: action.Symbol,
+            Currency: action.Currency,
+            Regime: action.Regime,
+            Bucket: action.Bucket,
+            Action: action.Action,
+            IsActionable: action.IsActionable,
+            AvailableBalance: action.AvailableBalance,
+            LendableBalance: action.LendableBalance,
+            AllocationAmount: action.AllocationAmount,
+            AllocationFraction: action.AllocationFraction,
+            TargetRate: action.TargetRate,
+            FallbackRate: action.FallbackRate,
+            TargetPeriodDays: action.TargetPeriodDays,
+            MaxWaitMinutes: action.MaxWaitMinutes,
+            DecisionDeadlineUtc: action.DecisionDeadlineUtc,
+            Role: action.Role,
+            FallbackBucket: action.FallbackBucket,
+            ActiveOfferCount: action.ActiveOfferCount,
+            ActiveOfferId: action.ActiveOfferId,
+            ActiveOfferRate: action.ActiveOfferRate,
+            ActiveOfferAmount: action.ActiveOfferAmount,
+            ActiveOfferStatus: action.ActiveOfferStatus,
+            Reason: action.Reason,
+            Summary: action.Summary,
+            Metadata: new
+            {
+                action.Regime,
+                action.ActiveOfferCount,
+                action.FallbackBucket
+            });
+    }
+
+    private static string CreateShadowPlanKey(string symbol, DateTime timestampUtc, string bucket)
+    {
+        return $"{symbol}:{timestampUtc:O}:{bucket}";
+    }
+
+    private static string CreateShadowActionKey(string symbol, DateTime timestampUtc, string bucket, string action)
+    {
+        return $"{symbol}:{timestampUtc:O}:{bucket}:{action}";
     }
 
     private bool ShouldRefreshLifecycleFromRest()
@@ -2307,6 +2376,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
         IReadOnlyList<FundingShadowPlan> shadowPlans,
+        IReadOnlyList<FundingShadowAction> shadowActions,
         FundingLifecycleSyncResult lifecycleSync)
     {
         return new
@@ -2322,6 +2392,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             DecisionCount = decisions.Count,
             ActionResultCount = actionResults.Count,
             ShadowPlanCount = shadowPlans.Count,
+            ShadowActionCount = shadowActions.Count,
             UsePrivateWebSocket = _options.UsePrivateWebSocket,
             PrivateWsLastMessageUtc = _privateFeed?.LastMessageUtc,
             LastRestOfferSyncUtc = _lastOfferStateSyncUtc == default ? (DateTime?)null : _lastOfferStateSyncUtc,
@@ -2557,6 +2628,251 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         }
     }
 
+    private IReadOnlyList<FundingShadowAction> BuildShadowActions(
+        IReadOnlyList<FundingShadowPlan> shadowPlans,
+        IReadOnlyList<FundingOfferInfo> activeOffers)
+    {
+        if (!_options.LayeredShadowEnabled || shadowPlans.Count == 0)
+            return Array.Empty<FundingShadowAction>();
+
+        var actions = new List<FundingShadowAction>(shadowPlans.Sum(static plan => Math.Max(1, plan.Buckets.Count)));
+
+        foreach (var plan in shadowPlans)
+        {
+            var offersForSymbol = activeOffers
+                .Where(offer => string.Equals(offer.Symbol, plan.Symbol, StringComparison.OrdinalIgnoreCase) && offer.IsActive)
+                .OrderByDescending(offer => offer.UpdatedUtc ?? offer.CreatedUtc ?? DateTime.MinValue)
+                .ToArray();
+
+            if (plan.Buckets.Count == 0)
+            {
+                actions.Add(new FundingShadowAction(
+                    Symbol: plan.Symbol,
+                    Currency: plan.Currency,
+                    Regime: plan.Regime,
+                    Bucket: "NONE",
+                    Action: "would_hold_no_actionable_bucket",
+                    IsActionable: false,
+                    AvailableBalance: plan.AvailableBalance,
+                    LendableBalance: plan.LendableBalance,
+                    AllocationAmount: 0m,
+                    AllocationFraction: 0m,
+                    TargetRate: null,
+                    FallbackRate: null,
+                    TargetPeriodDays: null,
+                    MaxWaitMinutes: null,
+                    DecisionDeadlineUtc: null,
+                    Role: "inactive",
+                    FallbackBucket: null,
+                    ActiveOfferCount: offersForSymbol.Length,
+                    ActiveOfferId: offersForSymbol.Length == 1 ? TryParseLongId(offersForSymbol[0].OfferId) : null,
+                    ActiveOfferRate: offersForSymbol.Length == 1 ? offersForSymbol[0].Rate : null,
+                    ActiveOfferAmount: offersForSymbol.Length == 1 ? Math.Abs(offersForSymbol[0].Amount) : null,
+                    ActiveOfferStatus: offersForSymbol.Length == 1 ? offersForSymbol[0].Status : null,
+                    Reason: plan.Summary,
+                    Summary: plan.Summary,
+                    TimestampUtc: plan.TimestampUtc));
+                continue;
+            }
+
+            foreach (var bucket in plan.Buckets)
+            {
+                actions.Add(BuildShadowAction(plan, bucket, offersForSymbol));
+            }
+        }
+
+        return actions;
+    }
+
+    private FundingShadowAction BuildShadowAction(
+        FundingShadowPlan plan,
+        FundingShadowBucket bucket,
+        IReadOnlyList<FundingOfferInfo> activeOffers)
+    {
+        var fallbackRate = ResolveFallbackRate(plan, bucket);
+        var activeOffer = activeOffers.Count == 1 ? activeOffers[0] : null;
+        var deadlineUtc = bucket.MaxWaitMinutes > 0
+            ? plan.TimestampUtc.AddMinutes(bucket.MaxWaitMinutes)
+            : (DateTime?)null;
+
+        if (activeOffers.Count > 1)
+        {
+            return CreateShadowAction(
+                plan,
+                bucket,
+                action: "would_hold_ambiguous_state",
+                isActionable: false,
+                fallbackRate: fallbackRate,
+                decisionDeadlineUtc: deadlineUtc,
+                activeOffers: activeOffers,
+                reason: $"Multiple active offers exist for {plan.Symbol}; shadow layer would not mutate ambiguous state.",
+                summary: $"{bucket.Bucket} would hold because multiple active offers exist.");
+        }
+
+        var targetRequest = BuildShadowTargetRequest(plan.Symbol, bucket);
+        if (activeOffer is not null)
+        {
+            var shouldReplace = ShouldReplaceOffer(activeOffer, targetRequest, out var replaceReason);
+
+            if (string.Equals(bucket.Bucket, "Opportunistic", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(plan.Regime, "HOT", StringComparison.OrdinalIgnoreCase))
+            {
+                return CreateShadowAction(
+                    plan,
+                    bucket,
+                    action: shouldReplace ? "would_wait_then_fallback" : "would_keep_active_offer",
+                    isActionable: false,
+                    fallbackRate: fallbackRate,
+                    decisionDeadlineUtc: deadlineUtc,
+                    activeOffers: activeOffers,
+                    reason: shouldReplace
+                        ? $"Opportunistic bucket would wait for stronger conditions and then fall back to {bucket.FallbackBucket ?? "Motor"}. {replaceReason}"
+                        : $"Existing active offer is acceptable for the shadow opportunistic bucket. {replaceReason}",
+                    summary: shouldReplace
+                        ? $"{bucket.Bucket} would wait up to {bucket.MaxWaitMinutes}m before falling back to {bucket.FallbackBucket ?? "Motor"}."
+                        : $"{bucket.Bucket} would keep the current active offer.");
+            }
+
+            return CreateShadowAction(
+                plan,
+                bucket,
+                action: shouldReplace ? "would_reprice_active_offer" : "would_keep_active_offer",
+                isActionable: shouldReplace,
+                fallbackRate: fallbackRate,
+                decisionDeadlineUtc: shouldReplace ? deadlineUtc : null,
+                activeOffers: activeOffers,
+                reason: shouldReplace
+                    ? $"Shadow target diverged from the active offer. {replaceReason}"
+                    : $"Existing active offer remains aligned with the shadow target. {replaceReason}",
+                summary: shouldReplace
+                    ? $"{bucket.Bucket} would reprice the active offer toward {targetRequest.Rate:E6}."
+                    : $"{bucket.Bucket} would keep the current active offer.");
+        }
+
+        if (string.Equals(bucket.Bucket, "Motor", StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateShadowAction(
+                plan,
+                bucket,
+                action: "would_place_now",
+                isActionable: true,
+                fallbackRate: fallbackRate,
+                decisionDeadlineUtc: null,
+                activeOffers: activeOffers,
+                reason: "Motor bucket prioritizes baseline utilization and would place immediately.",
+                summary: $"{bucket.Bucket} would place now at {bucket.TargetRate:E6}.");
+        }
+
+        if (string.Equals(plan.Regime, "HOT", StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateShadowAction(
+                plan,
+                bucket,
+                action: "would_place_now",
+                isActionable: true,
+                fallbackRate: fallbackRate,
+                decisionDeadlineUtc: null,
+                activeOffers: activeOffers,
+                reason: "Opportunistic bucket sees a HOT regime and would place immediately.",
+                summary: $"{bucket.Bucket} would place now because the regime is HOT.");
+        }
+
+        return CreateShadowAction(
+            plan,
+            bucket,
+            action: "would_wait_for_better_rate",
+            isActionable: false,
+            fallbackRate: fallbackRate,
+            decisionDeadlineUtc: deadlineUtc,
+            activeOffers: activeOffers,
+            reason: $"Opportunistic bucket would wait for a better rate for up to {bucket.MaxWaitMinutes} minutes before falling back to {bucket.FallbackBucket ?? "Motor"}.",
+            summary: $"{bucket.Bucket} would wait up to {bucket.MaxWaitMinutes}m before fallback.");
+    }
+
+    private FundingShadowAction CreateShadowAction(
+        FundingShadowPlan plan,
+        FundingShadowBucket bucket,
+        string action,
+        bool isActionable,
+        decimal? fallbackRate,
+        DateTime? decisionDeadlineUtc,
+        IReadOnlyList<FundingOfferInfo> activeOffers,
+        string reason,
+        string summary)
+    {
+        var activeOffer = activeOffers.Count == 1 ? activeOffers[0] : null;
+
+        return new FundingShadowAction(
+            Symbol: plan.Symbol,
+            Currency: plan.Currency,
+            Regime: plan.Regime,
+            Bucket: bucket.Bucket,
+            Action: action,
+            IsActionable: isActionable,
+            AvailableBalance: plan.AvailableBalance,
+            LendableBalance: plan.LendableBalance,
+            AllocationAmount: bucket.AllocationAmount,
+            AllocationFraction: bucket.AllocationFraction,
+            TargetRate: bucket.TargetRate,
+            FallbackRate: fallbackRate,
+            TargetPeriodDays: bucket.TargetPeriodDays,
+            MaxWaitMinutes: bucket.MaxWaitMinutes,
+            DecisionDeadlineUtc: decisionDeadlineUtc,
+            Role: bucket.Role,
+            FallbackBucket: bucket.FallbackBucket,
+            ActiveOfferCount: activeOffers.Count,
+            ActiveOfferId: activeOffer is null ? null : TryParseLongId(activeOffer.OfferId),
+            ActiveOfferRate: activeOffer?.Rate,
+            ActiveOfferAmount: activeOffer is null ? null : Math.Abs(activeOffer.Amount),
+            ActiveOfferStatus: activeOffer?.Status,
+            Reason: reason,
+            Summary: summary,
+            TimestampUtc: plan.TimestampUtc);
+    }
+
+    private FundingOfferRequest BuildShadowTargetRequest(string symbol, FundingShadowBucket bucket)
+    {
+        var minPeriodDays = Math.Max(2, _options.MinPeriodDays);
+        var maxPeriodDays = Math.Max(minPeriodDays, _options.MaxPeriodDays);
+
+        return new FundingOfferRequest(
+            Symbol: symbol,
+            Amount: decimal.Round(Math.Min(bucket.AllocationAmount, _options.MaxOfferAmount), 8, MidpointRounding.ToZero),
+            Rate: Math.Clamp(bucket.TargetRate, _options.MinDailyRate, _options.MaxDailyRate),
+            PeriodDays: Math.Clamp(bucket.TargetPeriodDays, minPeriodDays, maxPeriodDays),
+            OfferType: string.IsNullOrWhiteSpace(_options.OfferType)
+                ? "LIMIT"
+                : _options.OfferType.Trim().ToUpperInvariant(),
+            Flags: _options.OfferFlags);
+    }
+
+    private static decimal? ResolveFallbackRate(FundingShadowPlan plan, FundingShadowBucket bucket)
+    {
+        if (string.IsNullOrWhiteSpace(bucket.FallbackBucket))
+            return null;
+
+        return plan.Buckets
+            .FirstOrDefault(candidate => string.Equals(candidate.Bucket, bucket.FallbackBucket, StringComparison.OrdinalIgnoreCase))
+            ?.TargetRate;
+    }
+
+    private void LogShadowActions(IReadOnlyList<FundingShadowAction> shadowActions)
+    {
+        if (!_options.LayeredShadowEnabled || shadowActions.Count == 0)
+            return;
+
+        foreach (var action in shadowActions)
+        {
+            _log.Information(
+                "[BFX-FUND-SHADOW-ACT] symbol={Symbol} bucket={Bucket} action={Action} actionable={Actionable} summary={Summary}",
+                action.Symbol,
+                action.Bucket,
+                action.Action,
+                action.IsActionable,
+                action.Summary);
+        }
+    }
+
     private decimal SelectShadowRate(decimal marketRate, decimal multiplier)
     {
         var safeMarketRate = marketRate > 0m ? marketRate : _options.MinDailyRate;
@@ -2603,6 +2919,11 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private static decimal ClampFraction(decimal value)
     {
         return Math.Clamp(value, 0m, 1m);
+    }
+
+    private static long? TryParseLongId(string? value)
+    {
+        return long.TryParse(value, out var parsed) ? parsed : null;
     }
 
     private IReadOnlyList<string> GetPreferredSymbols()

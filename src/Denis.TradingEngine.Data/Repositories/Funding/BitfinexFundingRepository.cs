@@ -30,6 +30,7 @@ public sealed class BitfinexFundingRepository
             batch.Offers.Count == 0 &&
             batch.OfferEvents.Count == 0 &&
             batch.ShadowPlans.Count == 0 &&
+            batch.ShadowActions.Count == 0 &&
             batch.Credits.Count == 0 &&
             batch.Loans.Count == 0 &&
             batch.Trades.Count == 0 &&
@@ -53,6 +54,7 @@ public sealed class BitfinexFundingRepository
             await UpsertOffersCoreAsync(conn, tx, batch.Offers, ct).ConfigureAwait(false);
             await InsertOfferEventsCoreAsync(conn, tx, batch.OfferEvents, ct).ConfigureAwait(false);
             await UpsertShadowPlansCoreAsync(conn, tx, batch.ShadowPlans, ct).ConfigureAwait(false);
+            await UpsertShadowActionsCoreAsync(conn, tx, batch.ShadowActions, ct).ConfigureAwait(false);
             await UpsertCreditsCoreAsync(conn, tx, batch.Credits, ct).ConfigureAwait(false);
             await UpsertLoansCoreAsync(conn, tx, batch.Loans, ct).ConfigureAwait(false);
             await UpsertTradesCoreAsync(conn, tx, batch.Trades, ct).ConfigureAwait(false);
@@ -823,6 +825,92 @@ ON CONFLICT (exchange, plan_key) DO UPDATE SET
         await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
     }
 
+    private static async Task UpsertShadowActionsCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingShadowActionRecord> actions,
+        CancellationToken ct)
+    {
+        if (actions.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + actions.Count * 480);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_shadow_actions
+(utc, exchange, action_key, plan_key, symbol, currency, regime, bucket, action, is_actionable, available_balance, lendable_balance, allocation_amount, allocation_fraction, target_rate, fallback_rate, target_period_days, max_wait_minutes, decision_deadline_utc, role, fallback_bucket, active_offer_count, active_offer_id, active_offer_rate, active_offer_amount, active_offer_status, reason, summary, metadata)
+VALUES ");
+
+        for (int i = 0; i < actions.Count; i++)
+        {
+            var item = actions[i];
+            sql.Append($"(@Utc{i}, @Exchange{i}, @ActionKey{i}, @PlanKey{i}, @Symbol{i}, @Currency{i}, @Regime{i}, @Bucket{i}, @Action{i}, @IsActionable{i}, @AvailableBalance{i}, @LendableBalance{i}, @AllocationAmount{i}, @AllocationFraction{i}, @TargetRate{i}, @FallbackRate{i}, @TargetPeriodDays{i}, @MaxWaitMinutes{i}, @DecisionDeadlineUtc{i}, @Role{i}, @FallbackBucket{i}, @ActiveOfferCount{i}, @ActiveOfferId{i}, @ActiveOfferRate{i}, @ActiveOfferAmount{i}, @ActiveOfferStatus{i}, @Reason{i}, @Summary{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Utc{i}", item.Utc);
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"ActionKey{i}", item.ActionKey);
+            parameters.Add($"PlanKey{i}", item.PlanKey);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"Currency{i}", item.Currency);
+            parameters.Add($"Regime{i}", item.Regime);
+            parameters.Add($"Bucket{i}", item.Bucket);
+            parameters.Add($"Action{i}", item.Action);
+            parameters.Add($"IsActionable{i}", item.IsActionable);
+            parameters.Add($"AvailableBalance{i}", item.AvailableBalance);
+            parameters.Add($"LendableBalance{i}", item.LendableBalance);
+            parameters.Add($"AllocationAmount{i}", item.AllocationAmount);
+            parameters.Add($"AllocationFraction{i}", item.AllocationFraction);
+            parameters.Add($"TargetRate{i}", item.TargetRate);
+            parameters.Add($"FallbackRate{i}", item.FallbackRate);
+            parameters.Add($"TargetPeriodDays{i}", item.TargetPeriodDays);
+            parameters.Add($"MaxWaitMinutes{i}", item.MaxWaitMinutes);
+            parameters.Add($"DecisionDeadlineUtc{i}", item.DecisionDeadlineUtc);
+            parameters.Add($"Role{i}", item.Role);
+            parameters.Add($"FallbackBucket{i}", item.FallbackBucket);
+            parameters.Add($"ActiveOfferCount{i}", item.ActiveOfferCount);
+            parameters.Add($"ActiveOfferId{i}", item.ActiveOfferId);
+            parameters.Add($"ActiveOfferRate{i}", item.ActiveOfferRate);
+            parameters.Add($"ActiveOfferAmount{i}", item.ActiveOfferAmount);
+            parameters.Add($"ActiveOfferStatus{i}", item.ActiveOfferStatus);
+            parameters.Add($"Reason{i}", item.Reason);
+            parameters.Add($"Summary{i}", item.Summary);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, action_key) DO UPDATE SET
+    utc = EXCLUDED.utc,
+    plan_key = EXCLUDED.plan_key,
+    symbol = EXCLUDED.symbol,
+    currency = EXCLUDED.currency,
+    regime = EXCLUDED.regime,
+    bucket = EXCLUDED.bucket,
+    action = EXCLUDED.action,
+    is_actionable = EXCLUDED.is_actionable,
+    available_balance = EXCLUDED.available_balance,
+    lendable_balance = EXCLUDED.lendable_balance,
+    allocation_amount = EXCLUDED.allocation_amount,
+    allocation_fraction = EXCLUDED.allocation_fraction,
+    target_rate = EXCLUDED.target_rate,
+    fallback_rate = EXCLUDED.fallback_rate,
+    target_period_days = EXCLUDED.target_period_days,
+    max_wait_minutes = EXCLUDED.max_wait_minutes,
+    decision_deadline_utc = EXCLUDED.decision_deadline_utc,
+    role = EXCLUDED.role,
+    fallback_bucket = EXCLUDED.fallback_bucket,
+    active_offer_count = EXCLUDED.active_offer_count,
+    active_offer_id = EXCLUDED.active_offer_id,
+    active_offer_rate = EXCLUDED.active_offer_rate,
+    active_offer_amount = EXCLUDED.active_offer_amount,
+    active_offer_status = EXCLUDED.active_offer_status,
+    reason = EXCLUDED.reason,
+    summary = EXCLUDED.summary,
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
     private static string? SerializeJson(object? value)
     {
         if (value is null)
@@ -839,6 +927,7 @@ public sealed record FundingPersistenceBatch(
     IReadOnlyList<FundingOfferStateRecord> Offers,
     IReadOnlyList<FundingOfferEventRecord> OfferEvents,
     IReadOnlyList<FundingShadowPlanRecord> ShadowPlans,
+    IReadOnlyList<FundingShadowActionRecord> ShadowActions,
     IReadOnlyList<FundingCreditStateRecord> Credits,
     IReadOnlyList<FundingLoanStateRecord> Loans,
     IReadOnlyList<FundingTradeRecord> Trades,
@@ -948,6 +1037,37 @@ public sealed record FundingShadowPlanRecord(
     string? FallbackBucket,
     decimal? MarketAskRate,
     decimal? MarketBidRate,
+    string? Summary,
+    object? Metadata = null);
+
+public sealed record FundingShadowActionRecord(
+    DateTime Utc,
+    string Exchange,
+    string ActionKey,
+    string PlanKey,
+    string Symbol,
+    string Currency,
+    string Regime,
+    string Bucket,
+    string Action,
+    bool IsActionable,
+    decimal AvailableBalance,
+    decimal LendableBalance,
+    decimal AllocationAmount,
+    decimal AllocationFraction,
+    decimal? TargetRate,
+    decimal? FallbackRate,
+    int? TargetPeriodDays,
+    int? MaxWaitMinutes,
+    DateTime? DecisionDeadlineUtc,
+    string? Role,
+    string? FallbackBucket,
+    int ActiveOfferCount,
+    long? ActiveOfferId,
+    decimal? ActiveOfferRate,
+    decimal? ActiveOfferAmount,
+    string? ActiveOfferStatus,
+    string Reason,
     string? Summary,
     object? Metadata = null);
 
