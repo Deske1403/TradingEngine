@@ -434,6 +434,7 @@ Status:
   - `MinDailyRate`
   - `MaxDailyRate`
   - `LiveRateMode`
+  - `ManagedOfferTargetMode`
   - `LiveUseFrrAsFloor`
   - `LiveLowRegimeRateMultiplier`
   - `LiveNormalRegimeRateMultiplier`
@@ -447,6 +448,14 @@ Status:
 - startup now logs the effective runtime profile per symbol so live behavior is auditable before the first funding cycle
 - managed-offer ownership now survives restart through persisted `managed_by_engine` state plus submit-history recovery
 - this closes the old gap where the same live offer became `external` after process restart
+- live now also supports a promotion gate for managed offers:
+  - new placement can stay on `SmartRegime`
+  - managed active offers can separately target `Live`, `ShadowMotor`, or `ShadowOpportunistic`
+  - replace now runs as a same-cycle `replace_offer` flow instead of a bare cancel-only step
+- this gives us a practical intermediate promotion path:
+  - stable live placement remains conservative
+  - managed repricing can start following `Motor`
+  - full shadow wait/fallback policy can stay shadow-only until later
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`

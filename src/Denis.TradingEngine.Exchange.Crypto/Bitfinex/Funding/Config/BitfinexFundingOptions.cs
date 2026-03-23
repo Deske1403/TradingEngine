@@ -38,6 +38,8 @@ public sealed class BitfinexFundingOptions
 
     public string LiveRateMode { get; set; } = "SmartRegime";
 
+    public string ManagedOfferTargetMode { get; set; } = "Live";
+
     public bool LiveUseFrrAsFloor { get; set; } = true;
 
     public decimal LiveLowRegimeRateMultiplier { get; set; } = 1.00m;

@@ -1082,7 +1082,7 @@ What to verify in logs and snapshots:
 - active offers snapshot is present
 - decision is one of:
   - `would_place`
-  - `would_cancel_for_replace`
+  - `would_replace_offer`
   - `skip_external_active_offer_exists`
   - `skip_active_offer_ok`
   - `skip_reserved_balance`
@@ -1101,8 +1101,8 @@ Recommended first live test after dry-run looks sane:
 Important live-safety rule in current slice:
 
 - the manager will place a new offer if there is no active offer
-- it will cancel/replace only offers it created during the current process lifetime
-- after restart, previously opened offers are treated as external unless we later add persistent ownership tracking
+- managed-offer ownership is now persisted and recovered on restart
+- live can now optionally promote shadow-derived managed-offer targets instead of always evaluating active offers against the raw live-placement target
 
 ## Achieved on 2026-03-20
 
@@ -1276,6 +1276,36 @@ Important boundary:
 - this slice only improves live rate selection
 - it does not yet make live placement fully shadow-driven
 
+## Managed-offer promotion gate
+
+Live runtime now also supports a separate managed-offer target policy through `ManagedOfferTargetMode`.
+
+Supported modes:
+
+- `Live`
+- `ShadowMotor`
+- `ShadowOpportunistic`
+
+Practical meaning:
+
+- new offers can still use the current live placement policy such as `SmartRegime`
+- existing managed offers can now be evaluated against a promoted shadow target instead of the raw live-placement target
+- this closes the confusing case where shadow kept saying `would_reprice_active_offer` while live kept saying `skip_active_offer_ok`
+
+Current implementation details:
+
+- managed-offer target changes only the replace target, not the balance sizing math
+- amount and period stay aligned with the current live placement candidate
+- when a replace decision triggers, runtime now performs a real same-cycle `replace_offer` flow:
+  - cancel current managed offer
+  - submit the replacement target immediately
+  - remember the new offer as managed
+
+Recommended promotion path:
+
+- keep `LiveRateMode = SmartRegime` as the safe baseline for new placements
+- set `ManagedOfferTargetMode = ShadowMotor` when you want live repricing to start following the `Motor` target before promoting the full shadow policy
+
 ## Per-symbol funding profiles
 
 Funding config now also supports symbol-specific overrides so `fUSD` and `fUST` no longer have to share one blunt global runtime shape.
@@ -1293,6 +1323,7 @@ Advanced per-symbol controls:
 - `MinDailyRate`
 - `MaxDailyRate`
 - `LiveRateMode`
+- `ManagedOfferTargetMode`
 - `LiveUseFrrAsFloor`
 - `LiveLowRegimeRateMultiplier`
 - `LiveNormalRegimeRateMultiplier`

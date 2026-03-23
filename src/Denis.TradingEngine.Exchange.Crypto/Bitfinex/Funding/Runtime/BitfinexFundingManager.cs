@@ -431,6 +431,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             LendableBalance: lendable,
             Request: request,
             RateSelectionSummary: rateSelectionSummary,
+            Ticker: ticker,
+            SymbolSettings: symbolSettings,
             PauseNewOffers: symbolSettings.PauseNewOffers
         );
     }
@@ -506,7 +508,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 );
             }
 
-            if (!ShouldReplaceOffer(activeOffer, candidate.Request, out var replaceReason))
+            var (managedTargetRequest, managedTargetSummary) = ResolveManagedOfferTarget(candidate);
+            if (!ShouldReplaceOffer(activeOffer, managedTargetRequest, out var replaceReason))
             {
                 return new FundingDecision(
                     Action: "skip_active_offer_ok",
@@ -517,16 +520,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     WalletType: candidate.WalletType,
                     AvailableBalance: candidate.AvailableBalance,
                     LendableBalance: candidate.LendableBalance,
-                    ProposedAmount: candidate.Request.Amount,
-                    ProposedRate: candidate.Request.Rate,
-                    ProposedPeriodDays: candidate.Request.PeriodDays,
-                    Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). {replaceReason} {candidate.RateSelectionSummary}",
+                    ProposedAmount: managedTargetRequest.Amount,
+                    ProposedRate: managedTargetRequest.Rate,
+                    ProposedPeriodDays: managedTargetRequest.PeriodDays,
+                    Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary}",
                     TimestampUtc: nowUtc
                 );
             }
 
             return new FundingDecision(
-                Action: _options.DryRun ? "would_cancel_for_replace" : "cancel_for_replace",
+                Action: _options.DryRun ? "would_replace_offer" : "replace_offer",
                 IsDryRun: _options.DryRun,
                 IsActionable: true,
                 Symbol: candidate.Symbol,
@@ -534,10 +537,10 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 WalletType: candidate.WalletType,
                 AvailableBalance: candidate.AvailableBalance,
                 LendableBalance: candidate.LendableBalance,
-                ProposedAmount: candidate.Request.Amount,
-                ProposedRate: candidate.Request.Rate,
-                ProposedPeriodDays: candidate.Request.PeriodDays,
-                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). {replaceReason} {candidate.RateSelectionSummary}",
+                ProposedAmount: managedTargetRequest.Amount,
+                ProposedRate: managedTargetRequest.Rate,
+                ProposedPeriodDays: managedTargetRequest.PeriodDays,
+                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary}",
                 TimestampUtc: nowUtc
             );
         }
@@ -658,28 +661,72 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
                 return result;
             }
-            case "cancel_for_replace":
+            case "replace_offer":
             {
+                if (candidate is null)
+                {
+                    return CreateLocalActionResult(
+                        action: "replace_offer",
+                        success: false,
+                        symbol: decision.Symbol,
+                        offerId: null,
+                        status: "NO_CANDIDATE",
+                        message: "Missing placement candidate for live funding replace.");
+                }
+
                 if (activeOffers.Count != 1)
                 {
                     return CreateLocalActionResult(
-                        action: "cancel_offer",
+                        action: "replace_offer",
                         success: false,
                         symbol: decision.Symbol,
                         offerId: null,
                         status: "AMBIGUOUS_STATE",
-                        message: "Cancel/replace requires exactly one active offer.");
+                        message: "Replace requires exactly one active offer.");
                 }
 
                 var offer = activeOffers[0];
-                var result = await _api.CancelOfferAsync(offer.Symbol, offer.OfferId, ct).ConfigureAwait(false);
-                if (result.Success)
+                var cancelResult = await _api.CancelOfferAsync(offer.Symbol, offer.OfferId, ct).ConfigureAwait(false);
+                if (!cancelResult.Success)
                 {
-                    ForgetManagedOffer(offer.OfferId);
-                    await RefreshActiveOffersForSymbolAsync(offer.Symbol, ct).ConfigureAwait(false);
+                    return new FundingOfferActionResult(
+                        Action: "replace_offer",
+                        Success: false,
+                        IsDryRun: false,
+                        Symbol: decision.Symbol,
+                        OfferId: offer.OfferId,
+                        Status: cancelResult.Status,
+                        Message: $"Failed to cancel active offer {offer.OfferId} for replace. {cancelResult.Message}",
+                        Offer: cancelResult.Offer,
+                        TimestampUtc: DateTime.UtcNow
+                    );
                 }
 
-                return result;
+                ForgetManagedOffer(offer.OfferId);
+                await RefreshActiveOffersForSymbolAsync(offer.Symbol, ct).ConfigureAwait(false);
+
+                var (targetRequest, targetSummary) = ResolveManagedOfferTarget(candidate);
+                var submitResult = await _api.SubmitOfferAsync(targetRequest, ct).ConfigureAwait(false);
+                if (submitResult.Success && !string.IsNullOrWhiteSpace(submitResult.OfferId))
+                {
+                    RememberManagedOffer(submitResult.OfferId);
+                }
+
+                await RefreshActiveOffersForSymbolAsync(candidate.Symbol, ct).ConfigureAwait(false);
+
+                return new FundingOfferActionResult(
+                    Action: "replace_offer",
+                    Success: submitResult.Success,
+                    IsDryRun: false,
+                    Symbol: decision.Symbol,
+                    OfferId: submitResult.Success ? submitResult.OfferId : offer.OfferId,
+                    Status: submitResult.Success ? submitResult.Status : $"CANCELLED_{submitResult.Status}",
+                    Message: submitResult.Success
+                        ? $"Replaced active offer {offer.OfferId} with {submitResult.OfferId}. {submitResult.Message} {targetSummary}"
+                        : $"Cancelled active offer {offer.OfferId}, but replacement submit failed. {submitResult.Message} {targetSummary}",
+                    Offer: submitResult.Offer,
+                    TimestampUtc: DateTime.UtcNow
+                );
             }
             default:
                 return null;
@@ -3019,6 +3066,41 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ?.TargetRate;
     }
 
+    private (FundingOfferRequest Request, string Summary) ResolveManagedOfferTarget(FundingPlacementCandidate candidate)
+    {
+        var normalizedMode = NormalizeManagedOfferTargetMode(candidate.SymbolSettings.ManagedOfferTargetMode);
+        var askRate = candidate.Ticker.AskRate > 0m ? candidate.Ticker.AskRate : 0m;
+        var bidRate = candidate.Ticker.BidRate > 0m ? candidate.Ticker.BidRate : 0m;
+        var marketRate = askRate > 0m
+            ? askRate
+            : bidRate > 0m
+                ? bidRate
+                : candidate.SymbolSettings.MinDailyRate;
+
+        decimal targetRate;
+        string summary;
+
+        switch (normalizedMode)
+        {
+            case "SHADOWMOTOR":
+                targetRate = SelectShadowRate(marketRate, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
+                summary = $"managed_target=ShadowMotor anchor={marketRate:E6} mult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6}";
+                break;
+
+            case "SHADOWOPPORTUNISTIC":
+                targetRate = SelectShadowRate(marketRate, candidate.SymbolSettings.OpportunisticRateMultiplier, candidate.SymbolSettings);
+                summary = $"managed_target=ShadowOpportunistic anchor={marketRate:E6} mult={candidate.SymbolSettings.OpportunisticRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6}";
+                break;
+
+            default:
+                return (candidate.Request, $"managed_target=LivePlacement {candidate.RateSelectionSummary}");
+        }
+
+        return (
+            candidate.Request with { Rate = targetRate },
+            $"{summary} amount={candidate.Request.Amount:F2} period={candidate.Request.PeriodDays}");
+    }
+
     private void LogShadowActions(IReadOnlyList<FundingShadowAction> shadowActions)
     {
         if (!_options.LayeredShadowEnabled || shadowActions.Count == 0)
@@ -3300,6 +3382,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ToUpperInvariant();
     }
 
+    private static string NormalizeManagedOfferTargetMode(string? targetMode)
+    {
+        if (string.IsNullOrWhiteSpace(targetMode))
+            return "LIVE";
+
+        return targetMode
+            .Trim()
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .ToUpperInvariant();
+    }
+
     private static string FormatRate(decimal rate)
     {
         return rate > 0m ? rate.ToString("E6") : "n/a";
@@ -3391,6 +3486,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             MinDailyRate: profile?.MinDailyRate ?? _options.MinDailyRate,
             MaxDailyRate: Math.Max(profile?.MinDailyRate ?? _options.MinDailyRate, profile?.MaxDailyRate ?? _options.MaxDailyRate),
             LiveRateMode: string.IsNullOrWhiteSpace(profile?.LiveRateMode) ? _options.LiveRateMode : profile!.LiveRateMode!.Trim(),
+            ManagedOfferTargetMode: string.IsNullOrWhiteSpace(profile?.ManagedOfferTargetMode) ? _options.ManagedOfferTargetMode : profile!.ManagedOfferTargetMode!.Trim(),
             LiveUseFrrAsFloor: profile?.LiveUseFrrAsFloor ?? _options.LiveUseFrrAsFloor,
             LiveLowRegimeRateMultiplier: profile?.LiveLowRegimeRateMultiplier ?? _options.LiveLowRegimeRateMultiplier,
             LiveNormalRegimeRateMultiplier: profile?.LiveNormalRegimeRateMultiplier ?? _options.LiveNormalRegimeRateMultiplier,
@@ -3414,7 +3510,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var settings = ResolveSymbolSettings(symbol);
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} managedTarget={ManagedTarget} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -3422,6 +3518,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.MinOfferAmount,
                 settings.MaxOfferAmount,
                 settings.LiveRateMode,
+                settings.ManagedOfferTargetMode,
                 settings.MinDailyRate,
                 settings.MaxDailyRate,
                 settings.LiveLowRegimeRateMultiplier,
@@ -3547,6 +3644,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal LendableBalance,
         FundingOfferRequest Request,
         string RateSelectionSummary,
+        FundingTickerSnapshot Ticker,
+        FundingSymbolRuntimeSettings SymbolSettings,
         bool PauseNewOffers);
 
     private sealed record FundingSymbolRuntimeSettings(
@@ -3559,6 +3658,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal MinDailyRate,
         decimal MaxDailyRate,
         string LiveRateMode,
+        string ManagedOfferTargetMode,
         bool LiveUseFrrAsFloor,
         decimal LiveLowRegimeRateMultiplier,
         decimal LiveNormalRegimeRateMultiplier,

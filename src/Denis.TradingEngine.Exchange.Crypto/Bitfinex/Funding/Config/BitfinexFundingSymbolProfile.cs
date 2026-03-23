@@ -22,6 +22,8 @@ public sealed class BitfinexFundingSymbolProfile
 
     public string? LiveRateMode { get; set; }
 
+    public string? ManagedOfferTargetMode { get; set; }
+
     public bool? LiveUseFrrAsFloor { get; set; }
 
     public decimal? LiveLowRegimeRateMultiplier { get; set; }
