@@ -412,7 +412,18 @@ Goal:
 Status:
 
 - first implementation is now added in `shadow mode`
-- current live placement logic is unchanged
+- live placement is no longer limited to a hardcoded raw book-ask rule
+- live now supports bounded rate-selection modes:
+  - `BookAsk`
+  - `SmartRegime`
+  - `ShadowMotor`
+  - `ShadowOpportunistic`
+- intended safe live mode is currently `SmartRegime`:
+  - anchor from book ask/bid
+  - optional `FRR` floor
+  - `LOW / NORMAL / HOT` classification
+  - bounded premium via regime multipliers
+  - clamp to configured rate band
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`
@@ -427,6 +438,7 @@ Status:
 - the shadow layer now also groups consecutive action-policy observations into stateful sessions
 - those sessions persist into `funding_shadow_action_sessions`
 - latest session state can now be compared against live actions and book outcomes through `v_funding_shadow_session_vs_actual`
+- full stateful `wait / fallback / repricing` policy is still shadow-only
 - next task is to validate that shadow plan + shadow action storage stay coherent over real return cycles before allowing those plans to drive live placement
 
 ### Step 5. Add Opportunistic Layer

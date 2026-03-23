@@ -379,8 +379,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             return null;
         }
 
-        var marketRate = ticker.AskRate > 0m ? ticker.AskRate : ticker.BidRate;
-        var proposedRate = Math.Clamp(marketRate, _options.MinDailyRate, _options.MaxDailyRate);
+        var (proposedRate, rateSelectionSummary) = SelectLiveRate(ticker);
         var minPeriodDays = Math.Max(2, _options.MinPeriodDays);
         var maxPeriodDays = Math.Max(minPeriodDays, _options.MaxPeriodDays);
         var proposedPeriod = Math.Clamp(_options.DefaultPeriodDays, minPeriodDays, maxPeriodDays);
@@ -404,7 +403,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             WalletType: wallet.WalletType,
             AvailableBalance: wallet.Available,
             LendableBalance: lendable,
-            Request: request
+            Request: request,
+            RateSelectionSummary: rateSelectionSummary
         );
     }
 
@@ -428,7 +428,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedAmount: candidate.Request.Amount,
                 ProposedRate: candidate.Request.Rate,
                 ProposedPeriodDays: candidate.Request.PeriodDays,
-                Reason: $"Multiple active offers exist for {candidate.Symbol}; manager will not mutate ambiguous state.",
+                Reason: $"Multiple active offers exist for {candidate.Symbol}; manager will not mutate ambiguous state. {candidate.RateSelectionSummary}",
                 TimestampUtc: nowUtc
             );
         }
@@ -451,7 +451,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     ProposedAmount: candidate.Request.Amount,
                     ProposedRate: candidate.Request.Rate,
                     ProposedPeriodDays: candidate.Request.PeriodDays,
-                    Reason: $"External active funding offer exists (offerId={activeOffer.OfferId}); manager will not modify it.",
+                    Reason: $"External active funding offer exists (offerId={activeOffer.OfferId}); manager will not modify it. {candidate.RateSelectionSummary}",
                     TimestampUtc: nowUtc
                 );
             }
@@ -470,7 +470,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     ProposedAmount: candidate.Request.Amount,
                     ProposedRate: candidate.Request.Rate,
                     ProposedPeriodDays: candidate.Request.PeriodDays,
-                    Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). {replaceReason}",
+                    Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). {replaceReason} {candidate.RateSelectionSummary}",
                     TimestampUtc: nowUtc
                 );
             }
@@ -487,7 +487,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedAmount: candidate.Request.Amount,
                 ProposedRate: candidate.Request.Rate,
                 ProposedPeriodDays: candidate.Request.PeriodDays,
-                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). {replaceReason}",
+                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). {replaceReason} {candidate.RateSelectionSummary}",
                 TimestampUtc: nowUtc
             );
         }
@@ -505,8 +505,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ProposedRate: candidate.Request.Rate,
             ProposedPeriodDays: candidate.Request.PeriodDays,
             Reason: _options.DryRun
-                ? "Dry-run funding recommendation generated from market snapshot and funding wallet availability."
-                : "Funding offer should be submitted.",
+                ? $"Dry-run funding recommendation generated from market snapshot and funding wallet availability. {candidate.RateSelectionSummary}"
+                : $"Funding offer should be submitted. {candidate.RateSelectionSummary}",
             TimestampUtc: nowUtc
         );
     }
@@ -3142,6 +3142,78 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         return Math.Clamp(scaled, _options.MinDailyRate, _options.MaxDailyRate);
     }
 
+    private (decimal Rate, string Summary) SelectLiveRate(FundingTickerSnapshot ticker)
+    {
+        var askRate = ticker.AskRate > 0m ? ticker.AskRate : 0m;
+        var bidRate = ticker.BidRate > 0m ? ticker.BidRate : 0m;
+        var frrRate = ticker.Frr.GetValueOrDefault() > 0m ? ticker.Frr.GetValueOrDefault() : 0m;
+        var bookAnchor = askRate > 0m
+            ? askRate
+            : bidRate > 0m
+                ? bidRate
+                : frrRate;
+
+        var safeAnchor = bookAnchor > 0m ? bookAnchor : _options.MinDailyRate;
+        var normalizedMode = NormalizeLiveRateMode(_options.LiveRateMode);
+
+        decimal selectedRate;
+        string summary;
+
+        switch (normalizedMode)
+        {
+            case "BOOKASK":
+                selectedRate = Math.Clamp(safeAnchor, _options.MinDailyRate, _options.MaxDailyRate);
+                summary = $"rate_mode=BookAsk anchor={safeAnchor:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                break;
+
+            case "SHADOWMOTOR":
+                selectedRate = SelectShadowRate(safeAnchor, _options.MotorRateMultiplier);
+                summary = $"rate_mode=ShadowMotor anchor={safeAnchor:E6} mult={_options.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                break;
+
+            case "SHADOWOPPORTUNISTIC":
+                selectedRate = SelectShadowRate(safeAnchor, _options.OpportunisticRateMultiplier);
+                summary = $"rate_mode=ShadowOpportunistic anchor={safeAnchor:E6} mult={_options.OpportunisticRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                break;
+
+            default:
+                var anchor = _options.LiveUseFrrAsFloor && frrRate > 0m
+                    ? Math.Max(safeAnchor, frrRate)
+                    : safeAnchor;
+                var regime = ClassifyMarketRegime(anchor);
+                var multiplier = regime switch
+                {
+                    "HOT" => Math.Max(1m, _options.LiveHotRegimeRateMultiplier),
+                    "LOW" => Math.Max(1m, _options.LiveLowRegimeRateMultiplier),
+                    _ => Math.Max(1m, _options.LiveNormalRegimeRateMultiplier)
+                };
+
+                selectedRate = Math.Clamp(anchor * multiplier, _options.MinDailyRate, _options.MaxDailyRate);
+                summary = $"rate_mode=SmartRegime regime={regime} anchor={anchor:E6} mult={multiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                break;
+        }
+
+        return (selectedRate, summary);
+    }
+
+    private static string NormalizeLiveRateMode(string? rateMode)
+    {
+        if (string.IsNullOrWhiteSpace(rateMode))
+            return "SMARTREGIME";
+
+        return rateMode
+            .Trim()
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .ToUpperInvariant();
+    }
+
+    private static string FormatRate(decimal rate)
+    {
+        return rate > 0m ? rate.ToString("E6") : "n/a";
+    }
+
     private string ClassifyMarketRegime(decimal marketRate)
     {
         var minRate = _options.MinDailyRate;
@@ -3312,7 +3384,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         string WalletType,
         decimal AvailableBalance,
         decimal LendableBalance,
-        FundingOfferRequest Request);
+        FundingOfferRequest Request,
+        string RateSelectionSummary);
 
     private sealed record FundingLifecycleAllocationCandidate(
         string Kind,

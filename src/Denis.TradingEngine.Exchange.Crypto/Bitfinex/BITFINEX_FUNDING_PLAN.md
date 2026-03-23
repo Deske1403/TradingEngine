@@ -1232,12 +1232,49 @@ Current state of the funding module:
 - nonce robustness with dedicated spot / funding REST / funding WS keys: looks healthy in current runtime
 - offer lifecycle tracking: good
 - full funding accounting lifecycle: still incomplete
+- live rate selection: improved from pure book-ask to configurable smart mode
 
 Practical meaning:
 
 - the module is already good enough for controlled multi-symbol live validation
 - the basics are in place: live offers, WS truth, DB persistence basics, and isolated runtime behavior
 - it is not yet "finished" for complete funding accounting until credits / loans / trades / interest / return-from-loan lifecycle are first-class persisted
+
+## Live rate selection
+
+The live funding runtime no longer has to use a hardcoded `current ask only` rule.
+
+Current implementation now supports these live rate modes:
+
+- `BookAsk`
+- `SmartRegime`
+- `ShadowMotor`
+- `ShadowOpportunistic`
+
+Current intended safe runtime mode is `SmartRegime`.
+
+`SmartRegime` behavior:
+
+- start from the current funding book anchor:
+  - `ask`, or
+  - `bid` if ask is missing
+- optionally lift the anchor with `FRR` when `LiveUseFrrAsFloor = true`
+- classify the anchor into `LOW / NORMAL / HOT`
+- apply a bounded regime multiplier
+- clamp the final result to `MinDailyRate .. MaxDailyRate`
+
+Practical effect:
+
+- `LOW` regime still prefers execution / utilization
+- `NORMAL` regime allows a small premium over raw book ask
+- `HOT` regime allows a somewhat larger premium
+- live placement is now a little smarter without yet promoting full wait/fallback control from shadow into live logic
+
+Important boundary:
+
+- stateful `wait / fallback / repricing policy` still belongs to the shadow layer
+- this slice only improves live rate selection
+- it does not yet make live placement fully shadow-driven
 
 ## Remaining open items
 

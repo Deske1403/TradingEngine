@@ -34,6 +34,16 @@ public sealed class BitfinexFundingOptions
 
     public decimal MaxDailyRate { get; set; } = 0.00020m;
 
+    public string LiveRateMode { get; set; } = "SmartRegime";
+
+    public bool LiveUseFrrAsFloor { get; set; } = true;
+
+    public decimal LiveLowRegimeRateMultiplier { get; set; } = 1.00m;
+
+    public decimal LiveNormalRegimeRateMultiplier { get; set; } = 1.02m;
+
+    public decimal LiveHotRegimeRateMultiplier { get; set; } = 1.06m;
+
     public int MinPeriodDays { get; set; } = 2;
 
     public int DefaultPeriodDays { get; set; } = 2;
