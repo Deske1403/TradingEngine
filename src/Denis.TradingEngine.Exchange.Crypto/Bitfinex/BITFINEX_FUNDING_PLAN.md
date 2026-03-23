@@ -1306,6 +1306,22 @@ Recommended promotion path:
 - keep `LiveRateMode = SmartRegime` as the safe baseline for new placements
 - set `ManagedOfferTargetMode = ShadowMotor` when you want live repricing to start following the `Motor` target before promoting the full shadow policy
 
+Full `Motor` promotion path:
+
+- stage 1:
+  - `LiveRateMode = SmartRegime`
+  - `ManagedOfferTargetMode = ShadowMotor`
+  - result: new placements stay on the conservative live policy, but managed repricing follows `Motor`
+- stage 2:
+  - `LiveRateMode = ShadowMotor`
+  - `ManagedOfferTargetMode = ShadowMotor`
+  - result: both fresh placements and managed repricing follow the same `Motor` target
+
+Why stage 2 exists:
+
+- without it, an offer can be repriced down to a `Motor` target and then, after `EXECUTED`, the next fresh placement can jump back to a higher `SmartRegime` rate
+- stage 2 removes that policy split and keeps post-fill re-entry aligned with the same `Motor` logic
+
 ## Per-symbol funding profiles
 
 Funding config now also supports symbol-specific overrides so `fUSD` and `fUST` no longer have to share one blunt global runtime shape.

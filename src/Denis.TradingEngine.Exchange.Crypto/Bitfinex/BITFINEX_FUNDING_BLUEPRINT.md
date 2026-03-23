@@ -456,6 +456,10 @@ Status:
   - stable live placement remains conservative
   - managed repricing can start following `Motor`
   - full shadow wait/fallback policy can stay shadow-only until later
+- practical promotion sequence is now explicit:
+  - first promote managed repricing with `ManagedOfferTargetMode = ShadowMotor`
+  - then, when ready, promote fresh live entries too with `LiveRateMode = ShadowMotor`
+  - that avoids the split where a replaced offer follows `Motor`, but the next post-fill fresh placement jumps back to `SmartRegime`
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`
