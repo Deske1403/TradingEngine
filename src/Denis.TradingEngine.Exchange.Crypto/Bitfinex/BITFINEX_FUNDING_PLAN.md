@@ -1322,6 +1322,23 @@ Operational visibility:
 - that line shows the effective merged runtime profile after global defaults plus per-symbol overrides
 - this makes live funding behavior auditable before any new offer is placed
 
+## Managed offer ownership persistence
+
+Funding manager no longer relies only on in-memory `_managedOfferIds`.
+
+Implemented behavior:
+
+- `funding_offers` now persists a durable `managed_by_engine` flag
+- successful live submit history is also used as a recovery fallback for already-active offers
+- startup now reloads active managed offer ids from funding DB before the first funding cycle
+- `managed_by_engine` is merged with `OR` semantics on upsert, so a known-managed offer does not regress back to false on later snapshots
+
+Practical effect:
+
+- offers placed by this engine remain manageable after process restart
+- `skip_external_active_offer_exists` should no longer fire for the engine's own surviving active offers after restart
+- future `keep / reprice / cancel-replace` behavior can continue across restarts without forcing `AllowManagingExternalOffers=true`
+
 Important boundary:
 
 - profile pause only blocks new live offer creation

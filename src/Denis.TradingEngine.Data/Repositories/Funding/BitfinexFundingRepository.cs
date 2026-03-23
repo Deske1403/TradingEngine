@@ -133,6 +133,49 @@ public sealed class BitfinexFundingRepository
         }
     }
 
+    public async Task<IReadOnlyList<long>> LoadManagedActiveOfferIdsAsync(
+        string exchange,
+        IReadOnlyList<string> symbols,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(exchange) || symbols.Count == 0)
+            return Array.Empty<long>();
+
+        try
+        {
+            await using var conn = await _factory.CreateOpenConnectionAsync(ct).ConfigureAwait(false);
+            var rows = await conn.QueryAsync<long>(new CommandDefinition(@"
+SELECT offer_id
+FROM funding_offers
+WHERE exchange = @Exchange
+  AND is_active = TRUE
+  AND symbol = ANY(@Symbols)
+  AND (
+      managed_by_engine = TRUE
+      OR EXISTS (
+          SELECT 1
+          FROM funding_offer_events e
+          WHERE e.exchange = funding_offers.exchange
+            AND e.offer_id = funding_offers.offer_id
+            AND e.event_type = 'action_result_submit_offer'
+            AND COALESCE((e.metadata ->> 'Success')::BOOLEAN, FALSE) = TRUE
+      )
+  )
+ORDER BY updated_utc DESC NULLS LAST, offer_id DESC;", new
+            {
+                Exchange = exchange,
+                Symbols = symbols.ToArray()
+            }, cancellationToken: ct)).ConfigureAwait(false);
+
+            return rows.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "[DB-FUND] managed-offer load failed exchange={Exchange} symbols={Count}", exchange, symbols.Count);
+            return Array.Empty<long>();
+        }
+    }
+
     private static async Task InsertWalletSnapshotsCoreAsync(
         NpgsqlConnection conn,
         NpgsqlTransaction? transaction,
@@ -268,13 +311,13 @@ VALUES ");
 
         sql.Append(@"
 INSERT INTO funding_offers
-(exchange, offer_id, symbol, currency, wallet_type, offer_type, status, amount, original_amount, rate, rate_real, period_days, flags, notify, hidden, renew, is_active, created_utc, updated_utc, closed_utc, metadata)
+(exchange, offer_id, symbol, currency, wallet_type, offer_type, status, amount, original_amount, rate, rate_real, period_days, flags, notify, hidden, renew, is_active, managed_by_engine, created_utc, updated_utc, closed_utc, metadata)
 VALUES ");
 
         for (int i = 0; i < offers.Count; i++)
         {
             var offer = offers[i];
-            sql.Append($"(@Exchange{i}, @OfferId{i}, @Symbol{i}, @Currency{i}, @WalletType{i}, @OfferType{i}, @Status{i}, @Amount{i}, @OriginalAmount{i}, @Rate{i}, @RateReal{i}, @PeriodDays{i}, @Flags{i}, @Notify{i}, @Hidden{i}, @Renew{i}, @IsActive{i}, @CreatedUtc{i}, @UpdatedUtc{i}, @ClosedUtc{i}, @Metadata{i}::jsonb),");
+            sql.Append($"(@Exchange{i}, @OfferId{i}, @Symbol{i}, @Currency{i}, @WalletType{i}, @OfferType{i}, @Status{i}, @Amount{i}, @OriginalAmount{i}, @Rate{i}, @RateReal{i}, @PeriodDays{i}, @Flags{i}, @Notify{i}, @Hidden{i}, @Renew{i}, @IsActive{i}, @ManagedByEngine{i}, @CreatedUtc{i}, @UpdatedUtc{i}, @ClosedUtc{i}, @Metadata{i}::jsonb),");
             parameters.Add($"Exchange{i}", offer.Exchange);
             parameters.Add($"OfferId{i}", offer.OfferId);
             parameters.Add($"Symbol{i}", offer.Symbol);
@@ -292,6 +335,7 @@ VALUES ");
             parameters.Add($"Hidden{i}", offer.Hidden);
             parameters.Add($"Renew{i}", offer.Renew);
             parameters.Add($"IsActive{i}", offer.IsActive);
+            parameters.Add($"ManagedByEngine{i}", offer.ManagedByEngine);
             parameters.Add($"CreatedUtc{i}", offer.CreatedUtc);
             parameters.Add($"UpdatedUtc{i}", offer.UpdatedUtc);
             parameters.Add($"ClosedUtc{i}", offer.ClosedUtc);
@@ -316,6 +360,7 @@ ON CONFLICT (exchange, offer_id) DO UPDATE SET
     hidden = EXCLUDED.hidden,
     renew = EXCLUDED.renew,
     is_active = EXCLUDED.is_active,
+    managed_by_engine = funding_offers.managed_by_engine OR EXCLUDED.managed_by_engine,
     created_utc = COALESCE(EXCLUDED.created_utc, funding_offers.created_utc),
     updated_utc = COALESCE(EXCLUDED.updated_utc, funding_offers.updated_utc),
     closed_utc = COALESCE(EXCLUDED.closed_utc, funding_offers.closed_utc),
@@ -1093,6 +1138,7 @@ public sealed record FundingOfferStateRecord(
     bool Hidden,
     bool Renew,
     bool IsActive,
+    bool ManagedByEngine,
     DateTime? CreatedUtc,
     DateTime? UpdatedUtc,
     DateTime? ClosedUtc,

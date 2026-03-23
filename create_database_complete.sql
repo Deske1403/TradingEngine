@@ -350,6 +350,7 @@ CREATE TABLE funding_offers (
     hidden           BOOLEAN         NOT NULL DEFAULT FALSE,
     renew            BOOLEAN         NOT NULL DEFAULT FALSE,
     is_active        BOOLEAN         NOT NULL DEFAULT FALSE,
+    managed_by_engine BOOLEAN        NOT NULL DEFAULT FALSE,
     created_utc      TIMESTAMPTZ,
     updated_utc      TIMESTAMPTZ,
     closed_utc       TIMESTAMPTZ,

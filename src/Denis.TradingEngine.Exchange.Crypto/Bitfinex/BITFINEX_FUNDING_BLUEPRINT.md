@@ -445,6 +445,8 @@ Status:
   - `MotorMaxWaitMinutesLow/Normal/HotRegime`
   - `OpportunisticMaxWaitMinutesLow/Normal/HotRegime`
 - startup now logs the effective runtime profile per symbol so live behavior is auditable before the first funding cycle
+- managed-offer ownership now survives restart through persisted `managed_by_engine` state plus submit-history recovery
+- this closes the old gap where the same live offer became `external` after process restart
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`

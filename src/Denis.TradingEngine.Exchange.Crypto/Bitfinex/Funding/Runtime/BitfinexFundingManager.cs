@@ -144,6 +144,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             }
         }
 
+        await RecoverManagedOffersAsync(ct).ConfigureAwait(false);
+
         var interval = TimeSpan.FromMinutes(Math.Max(1, _options.RepriceIntervalMinutes));
         while (!ct.IsCancellationRequested)
         {
@@ -2161,6 +2163,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Hidden: offer.Hidden,
             Renew: offer.Renew,
             IsActive: offer.IsActive,
+            ManagedByEngine: IsManagedOffer(offer.OfferId),
             CreatedUtc: offer.CreatedUtc,
             UpdatedUtc: offer.UpdatedUtc,
             ClosedUtc: offer.IsActive ? null : (offer.UpdatedUtc ?? offer.CreatedUtc ?? DateTime.UtcNow),
@@ -2297,6 +2300,37 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             return _managedOfferIds.Contains(offerId);
         }
+    }
+
+    private async Task RecoverManagedOffersAsync(CancellationToken ct)
+    {
+        if (_fundingRepo is null)
+            return;
+
+        var symbols = GetPreferredSymbols();
+        if (symbols.Count == 0)
+            return;
+
+        var managedOfferIds = await _fundingRepo.LoadManagedActiveOfferIdsAsync("bitfinex", symbols, ct).ConfigureAwait(false);
+        if (managedOfferIds.Count == 0)
+        {
+            _log.Information("[BFX-FUND] managed-offer recovery found no persisted active offers.");
+            return;
+        }
+
+        lock (_offersSync)
+        {
+            _managedOfferIds.Clear();
+            foreach (var offerId in managedOfferIds)
+            {
+                _managedOfferIds.Add(offerId.ToString());
+            }
+        }
+
+        _log.Information(
+            "[BFX-FUND] managed-offer recovery restored count={Count} offerIds={OfferIds}",
+            managedOfferIds.Count,
+            string.Join(",", managedOfferIds));
     }
 
     private void RememberManagedOffer(string offerId)
