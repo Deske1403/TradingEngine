@@ -51,6 +51,10 @@ What is now also implemented in code and schema, pending next runtime verificati
   - `Opportunistic`
   - regime classification `LOW / NORMAL / HOT`
   - `funding_shadow_plan` telemetry snapshots
+  - dedicated shadow persistence table:
+    - `funding_shadow_plans`
+  - comparison/reporting view:
+    - `v_funding_shadow_vs_actual`
 
 This means the basic funding runtime is already real and working.
 
@@ -404,7 +408,9 @@ Status:
 - first implementation is now added in `shadow mode`
 - current live placement logic is unchanged
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
-- next task is to compare those plans against real market behavior before allowing them to drive live placement
+- shadow plans now persist into `funding_shadow_plans`
+- latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`
+- next task is to validate that dedicated shadow storage stays coherent over real return cycles before allowing those plans to drive live placement
 
 ### Step 5. Add Opportunistic Layer
 
@@ -421,7 +427,10 @@ Goal:
 Status:
 
 - first shadow allocation scaffold now exists alongside `Motor`
-- current implementation is telemetry-first and not yet allowed to mutate live offers
+- current implementation is measurement-first and not yet allowed to mutate live offers
+- the shadow layer now has both:
+  - telemetry snapshots
+  - dedicated funding-table storage and joined reporting against actual realized outcomes
 
 ### Step 6. Measure Before Expanding
 

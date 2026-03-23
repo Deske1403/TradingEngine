@@ -938,7 +938,9 @@ What this does:
   - target duration
   - max wait budget
 - the plan is logged as `[BFX-FUND-SHADOW]`
-- the plan is persisted only to telemetry snapshots
+- the plan is persisted to:
+  - telemetry snapshots
+  - dedicated funding table `funding_shadow_plans`
 
 What this does not do:
 
@@ -951,6 +953,37 @@ Reason for this approach:
 
 - we can keep pushing the funding engine forward while live funding stays stable
 - we get real runtime observations for `Motor / Opportunistic` before those layers are allowed to control capital
+
+## Implemented on 2026-03-23 (Shadow Storage and Comparison)
+
+The shadow planning layer is no longer snapshot-only.
+
+Added in schema:
+
+- `funding_shadow_plans`
+- `v_funding_shadow_vs_actual`
+
+Added in persistence:
+
+- shadow plans now flow through the dedicated funding repository batch
+- one row is stored per symbol / bucket / planning cycle
+- inactive plans still get a `NONE` bucket row so "no actionable plan" is auditable
+
+What this enables:
+
+- comparing latest `Motor` / `Opportunistic` intent against realized funding outcomes
+- asking simple questions without reading logs:
+  - what regime did the engine think it was in
+  - how much would `Motor` allocate
+  - how much would `Opportunistic` allocate
+  - did the symbol recently realize net interest
+  - are we carrying active or closed funding cycles
+
+Important operational note:
+
+- this slice does not change live placement behavior
+- it is measurement infrastructure only
+- the next runtime restart is required before `funding_shadow_plans` begins filling from the new code
 
 ## Practical test recipe
 

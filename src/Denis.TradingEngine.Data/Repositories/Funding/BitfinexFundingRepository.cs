@@ -29,6 +29,7 @@ public sealed class BitfinexFundingRepository
             batch.OfferActions.Count == 0 &&
             batch.Offers.Count == 0 &&
             batch.OfferEvents.Count == 0 &&
+            batch.ShadowPlans.Count == 0 &&
             batch.Credits.Count == 0 &&
             batch.Loans.Count == 0 &&
             batch.Trades.Count == 0 &&
@@ -51,6 +52,7 @@ public sealed class BitfinexFundingRepository
             await InsertOfferActionsCoreAsync(conn, tx, batch.OfferActions, ct).ConfigureAwait(false);
             await UpsertOffersCoreAsync(conn, tx, batch.Offers, ct).ConfigureAwait(false);
             await InsertOfferEventsCoreAsync(conn, tx, batch.OfferEvents, ct).ConfigureAwait(false);
+            await UpsertShadowPlansCoreAsync(conn, tx, batch.ShadowPlans, ct).ConfigureAwait(false);
             await UpsertCreditsCoreAsync(conn, tx, batch.Credits, ct).ConfigureAwait(false);
             await UpsertLoansCoreAsync(conn, tx, batch.Loans, ct).ConfigureAwait(false);
             await UpsertTradesCoreAsync(conn, tx, batch.Trades, ct).ConfigureAwait(false);
@@ -753,6 +755,74 @@ ON CONFLICT (exchange, event_key) DO UPDATE SET
         await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
     }
 
+    private static async Task UpsertShadowPlansCoreAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? transaction,
+        IReadOnlyList<FundingShadowPlanRecord> plans,
+        CancellationToken ct)
+    {
+        if (plans.Count == 0)
+            return;
+
+        var sql = new StringBuilder(512 + plans.Count * 420);
+        var parameters = new DynamicParameters();
+
+        sql.Append(@"
+INSERT INTO funding_shadow_plans
+(utc, exchange, plan_key, symbol, currency, regime, bucket, available_balance, lendable_balance, allocation_amount, allocation_fraction, target_rate, target_period_days, max_wait_minutes, role, fallback_bucket, market_ask_rate, market_bid_rate, summary, metadata)
+VALUES ");
+
+        for (int i = 0; i < plans.Count; i++)
+        {
+            var item = plans[i];
+            sql.Append($"(@Utc{i}, @Exchange{i}, @PlanKey{i}, @Symbol{i}, @Currency{i}, @Regime{i}, @Bucket{i}, @AvailableBalance{i}, @LendableBalance{i}, @AllocationAmount{i}, @AllocationFraction{i}, @TargetRate{i}, @TargetPeriodDays{i}, @MaxWaitMinutes{i}, @Role{i}, @FallbackBucket{i}, @MarketAskRate{i}, @MarketBidRate{i}, @Summary{i}, @Metadata{i}::jsonb),");
+            parameters.Add($"Utc{i}", item.Utc);
+            parameters.Add($"Exchange{i}", item.Exchange);
+            parameters.Add($"PlanKey{i}", item.PlanKey);
+            parameters.Add($"Symbol{i}", item.Symbol);
+            parameters.Add($"Currency{i}", item.Currency);
+            parameters.Add($"Regime{i}", item.Regime);
+            parameters.Add($"Bucket{i}", item.Bucket);
+            parameters.Add($"AvailableBalance{i}", item.AvailableBalance);
+            parameters.Add($"LendableBalance{i}", item.LendableBalance);
+            parameters.Add($"AllocationAmount{i}", item.AllocationAmount);
+            parameters.Add($"AllocationFraction{i}", item.AllocationFraction);
+            parameters.Add($"TargetRate{i}", item.TargetRate);
+            parameters.Add($"TargetPeriodDays{i}", item.TargetPeriodDays);
+            parameters.Add($"MaxWaitMinutes{i}", item.MaxWaitMinutes);
+            parameters.Add($"Role{i}", item.Role);
+            parameters.Add($"FallbackBucket{i}", item.FallbackBucket);
+            parameters.Add($"MarketAskRate{i}", item.MarketAskRate);
+            parameters.Add($"MarketBidRate{i}", item.MarketBidRate);
+            parameters.Add($"Summary{i}", item.Summary);
+            parameters.Add($"Metadata{i}", SerializeJson(item.Metadata));
+        }
+
+        sql.Length--;
+        sql.Append(@"
+ON CONFLICT (exchange, plan_key) DO UPDATE SET
+    utc = EXCLUDED.utc,
+    symbol = EXCLUDED.symbol,
+    currency = EXCLUDED.currency,
+    regime = EXCLUDED.regime,
+    bucket = EXCLUDED.bucket,
+    available_balance = EXCLUDED.available_balance,
+    lendable_balance = EXCLUDED.lendable_balance,
+    allocation_amount = EXCLUDED.allocation_amount,
+    allocation_fraction = EXCLUDED.allocation_fraction,
+    target_rate = EXCLUDED.target_rate,
+    target_period_days = EXCLUDED.target_period_days,
+    max_wait_minutes = EXCLUDED.max_wait_minutes,
+    role = EXCLUDED.role,
+    fallback_bucket = EXCLUDED.fallback_bucket,
+    market_ask_rate = EXCLUDED.market_ask_rate,
+    market_bid_rate = EXCLUDED.market_bid_rate,
+    summary = EXCLUDED.summary,
+    metadata = EXCLUDED.metadata;");
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
     private static string? SerializeJson(object? value)
     {
         if (value is null)
@@ -768,6 +838,7 @@ public sealed record FundingPersistenceBatch(
     IReadOnlyList<FundingOfferActionRecord> OfferActions,
     IReadOnlyList<FundingOfferStateRecord> Offers,
     IReadOnlyList<FundingOfferEventRecord> OfferEvents,
+    IReadOnlyList<FundingShadowPlanRecord> ShadowPlans,
     IReadOnlyList<FundingCreditStateRecord> Credits,
     IReadOnlyList<FundingLoanStateRecord> Loans,
     IReadOnlyList<FundingTradeRecord> Trades,
@@ -856,6 +927,28 @@ public sealed record FundingOfferEventRecord(
     decimal? RateReal,
     int? PeriodDays,
     string? Message,
+    object? Metadata = null);
+
+public sealed record FundingShadowPlanRecord(
+    DateTime Utc,
+    string Exchange,
+    string PlanKey,
+    string Symbol,
+    string Currency,
+    string Regime,
+    string Bucket,
+    decimal AvailableBalance,
+    decimal LendableBalance,
+    decimal AllocationAmount,
+    decimal AllocationFraction,
+    decimal? TargetRate,
+    int? TargetPeriodDays,
+    int? MaxWaitMinutes,
+    string? Role,
+    string? FallbackBucket,
+    decimal? MarketAskRate,
+    decimal? MarketBidRate,
+    string? Summary,
     object? Metadata = null);
 
 public sealed record FundingCreditStateRecord(

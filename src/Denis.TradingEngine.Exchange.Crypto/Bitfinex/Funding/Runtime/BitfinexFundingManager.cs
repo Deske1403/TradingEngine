@@ -676,7 +676,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     {
         if (_fundingRepo is not null)
         {
-            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, lifecycleSync, runtimeHealth);
+            var batch = BuildFundingPersistenceBatch(wallets, tickers, activeOffers, decisions, actionResults, shadowPlans, lifecycleSync, runtimeHealth);
             await _fundingRepo.PersistCycleAsync(batch, ct).ConfigureAwait(false);
         }
 
@@ -768,6 +768,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers,
         IReadOnlyList<FundingDecision> decisions,
         IReadOnlyList<FundingOfferActionResult> actionResults,
+        IReadOnlyList<FundingShadowPlan> shadowPlans,
         FundingLifecycleSyncResult lifecycleSync,
         object runtimeHealthMetadata)
     {
@@ -866,6 +867,10 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .Cast<FundingOfferEventRecord>()
             .ToArray();
 
+        var shadowRows = shadowPlans
+            .SelectMany(ToShadowPlanRecords)
+            .ToArray();
+
         var runtimeHealth = CreateRuntimeHealthRecord(runtimeHealthMetadata);
 
         return new FundingPersistenceBatch(
@@ -874,6 +879,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             OfferActions: actionRows,
             Offers: offerRowsById.Values.ToArray(),
             OfferEvents: eventRows,
+            ShadowPlans: shadowRows,
             Credits: lifecycleSync.Credits,
             Loans: lifecycleSync.Loans,
             Trades: lifecycleSync.Trades,
@@ -882,6 +888,69 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             CapitalEvents: lifecycleSync.CapitalEvents,
             RuntimeHealth: runtimeHealth,
             ReconciliationLog: lifecycleSync.ReconciliationLog);
+    }
+
+    private IReadOnlyList<FundingShadowPlanRecord> ToShadowPlanRecords(FundingShadowPlan plan)
+    {
+        if (plan.Buckets.Count == 0)
+        {
+            return
+            [
+                new FundingShadowPlanRecord(
+                    Utc: plan.TimestampUtc,
+                    Exchange: "bitfinex",
+                    PlanKey: $"{plan.Symbol}:{plan.TimestampUtc:O}:NONE",
+                    Symbol: plan.Symbol,
+                    Currency: plan.Currency,
+                    Regime: plan.Regime,
+                    Bucket: "NONE",
+                    AvailableBalance: plan.AvailableBalance,
+                    LendableBalance: plan.LendableBalance,
+                    AllocationAmount: 0m,
+                    AllocationFraction: 0m,
+                    TargetRate: null,
+                    TargetPeriodDays: null,
+                    MaxWaitMinutes: null,
+                    Role: "inactive",
+                    FallbackBucket: null,
+                    MarketAskRate: plan.MarketAskRate,
+                    MarketBidRate: plan.MarketBidRate,
+                    Summary: plan.Summary,
+                    Metadata: new
+                    {
+                        plan.Regime,
+                        BucketCount = 0
+                    })
+            ];
+        }
+
+        return plan.Buckets
+            .Select(bucket => new FundingShadowPlanRecord(
+                Utc: plan.TimestampUtc,
+                Exchange: "bitfinex",
+                PlanKey: $"{plan.Symbol}:{plan.TimestampUtc:O}:{bucket.Bucket}",
+                Symbol: plan.Symbol,
+                Currency: plan.Currency,
+                Regime: plan.Regime,
+                Bucket: bucket.Bucket,
+                AvailableBalance: plan.AvailableBalance,
+                LendableBalance: plan.LendableBalance,
+                AllocationAmount: bucket.AllocationAmount,
+                AllocationFraction: bucket.AllocationFraction,
+                TargetRate: bucket.TargetRate,
+                TargetPeriodDays: bucket.TargetPeriodDays,
+                MaxWaitMinutes: bucket.MaxWaitMinutes,
+                Role: bucket.Role,
+                FallbackBucket: bucket.FallbackBucket,
+                MarketAskRate: plan.MarketAskRate,
+                MarketBidRate: plan.MarketBidRate,
+                Summary: plan.Summary,
+                Metadata: new
+                {
+                    plan.Regime,
+                    BucketCount = plan.Buckets.Count
+                }))
+            .ToArray();
     }
 
     private bool ShouldRefreshLifecycleFromRest()
