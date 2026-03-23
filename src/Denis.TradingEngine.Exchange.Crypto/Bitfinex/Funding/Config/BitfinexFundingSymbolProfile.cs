@@ -15,4 +15,38 @@ public sealed class BitfinexFundingSymbolProfile
     public decimal? MaxOfferAmount { get; set; }
 
     public decimal? ReserveAmount { get; set; }
+
+    public decimal? MinDailyRate { get; set; }
+
+    public decimal? MaxDailyRate { get; set; }
+
+    public string? LiveRateMode { get; set; }
+
+    public bool? LiveUseFrrAsFloor { get; set; }
+
+    public decimal? LiveLowRegimeRateMultiplier { get; set; }
+
+    public decimal? LiveNormalRegimeRateMultiplier { get; set; }
+
+    public decimal? LiveHotRegimeRateMultiplier { get; set; }
+
+    public decimal? MotorAllocationFraction { get; set; }
+
+    public decimal? OpportunisticAllocationFraction { get; set; }
+
+    public decimal? MotorRateMultiplier { get; set; }
+
+    public decimal? OpportunisticRateMultiplier { get; set; }
+
+    public int? MotorMaxWaitMinutesLowRegime { get; set; }
+
+    public int? MotorMaxWaitMinutesNormalRegime { get; set; }
+
+    public int? MotorMaxWaitMinutesHotRegime { get; set; }
+
+    public int? OpportunisticMaxWaitMinutesLowRegime { get; set; }
+
+    public int? OpportunisticMaxWaitMinutesNormalRegime { get; set; }
+
+    public int? OpportunisticMaxWaitMinutesHotRegime { get; set; }
 }

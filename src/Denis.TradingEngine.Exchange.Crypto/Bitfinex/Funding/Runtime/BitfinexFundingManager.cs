@@ -95,6 +95,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             _log.Information("[BFX-FUND] Dry-run mode is active. Funding writes are disabled; decisions and snapshots will still be produced.");
         }
+
+        LogEffectiveSymbolSettings();
     }
 
     private async Task RunFeedLoopAsync(CancellationToken ct)
@@ -2637,15 +2639,6 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             return Array.Empty<FundingShadowPlan>();
 
         var plans = new List<FundingShadowPlan>(preferredSymbols.Count);
-        var motorFraction = ClampFraction(_options.MotorAllocationFraction);
-        var opportunisticFraction = ClampFraction(_options.OpportunisticAllocationFraction);
-        var totalFraction = motorFraction + opportunisticFraction;
-
-        if (totalFraction <= 0m)
-            return Array.Empty<FundingShadowPlan>();
-
-        var normalizedMotorFraction = motorFraction / totalFraction;
-        var normalizedOppFraction = opportunisticFraction / totalFraction;
 
         foreach (var symbol in preferredSymbols)
         {
@@ -2661,11 +2654,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
             var lendable = Math.Max(0m, wallet.Available - symbolSettings.ReserveAmount);
             var marketRate = ticker.AskRate > 0m ? ticker.AskRate : ticker.BidRate;
-            var regime = ClassifyMarketRegime(marketRate);
+            var regime = ClassifyMarketRegime(marketRate, symbolSettings);
             var timestampUtc = DateTime.UtcNow;
             var buckets = new List<FundingShadowBucket>(2);
+            var motorFraction = ClampFraction(symbolSettings.MotorAllocationFraction);
+            var opportunisticFraction = ClampFraction(symbolSettings.OpportunisticAllocationFraction);
+            var totalFraction = motorFraction + opportunisticFraction;
+            var normalizedMotorFraction = totalFraction <= 0m ? 0m : motorFraction / totalFraction;
+            var normalizedOppFraction = totalFraction <= 0m ? 0m : opportunisticFraction / totalFraction;
 
-            if (lendable >= symbolSettings.MinOfferAmount)
+            if (totalFraction > 0m && lendable >= symbolSettings.MinOfferAmount)
             {
                 var motorTargetAmount = decimal.Round(
                     Math.Min(lendable * normalizedMotorFraction, symbolSettings.MaxOfferAmount),
@@ -2697,9 +2695,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                         Bucket: "Motor",
                         AllocationAmount: motorTargetAmount,
                         AllocationFraction: normalizedMotorFraction,
-                        TargetRate: SelectShadowRate(marketRate, _options.MotorRateMultiplier),
+                        TargetRate: SelectShadowRate(marketRate, symbolSettings.MotorRateMultiplier, symbolSettings),
                         TargetPeriodDays: 2,
-                        MaxWaitMinutes: GetMotorMaxWaitMinutes(regime),
+                        MaxWaitMinutes: GetMotorMaxWaitMinutes(regime, symbolSettings),
                         Role: "baseline_utilization",
                         FallbackBucket: null));
                 }
@@ -2710,16 +2708,18 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                         Bucket: "Opportunistic",
                         AllocationAmount: opportunisticTargetAmount,
                         AllocationFraction: normalizedOppFraction,
-                        TargetRate: SelectShadowRate(marketRate, _options.OpportunisticRateMultiplier),
+                        TargetRate: SelectShadowRate(marketRate, symbolSettings.OpportunisticRateMultiplier, symbolSettings),
                         TargetPeriodDays: 2,
-                        MaxWaitMinutes: GetOpportunisticMaxWaitMinutes(regime),
+                        MaxWaitMinutes: GetOpportunisticMaxWaitMinutes(regime, symbolSettings),
                         Role: "yield_enhancement",
                         FallbackBucket: "Motor"));
                 }
             }
 
             var summary = buckets.Count == 0
-                ? $"No shadow bucket actionable. lendable={lendable:F2} reserve={symbolSettings.ReserveAmount:F2} minOffer={symbolSettings.MinOfferAmount:F2} regime={regime}"
+                ? totalFraction <= 0m
+                    ? $"No shadow bucket actionable. zero allocation profile configured for symbol. reserve={symbolSettings.ReserveAmount:F2} regime={regime}"
+                    : $"No shadow bucket actionable. lendable={lendable:F2} reserve={symbolSettings.ReserveAmount:F2} minOffer={symbolSettings.MinOfferAmount:F2} regime={regime}"
                 : string.Join("; ", buckets.Select(bucket =>
                     $"{bucket.Bucket} amt={bucket.AllocationAmount:F2} rate={bucket.TargetRate:E6} wait={bucket.MaxWaitMinutes}m"));
 
@@ -2817,6 +2817,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         FundingShadowBucket bucket,
         IReadOnlyList<FundingOfferInfo> activeOffers)
     {
+        var symbolSettings = ResolveSymbolSettings(plan.Symbol);
         var fallbackRate = ResolveFallbackRate(plan, bucket);
         var activeOffer = activeOffers.Count == 1 ? activeOffers[0] : null;
         var deadlineUtc = bucket.MaxWaitMinutes > 0
@@ -2837,7 +2838,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 summary: $"{bucket.Bucket} would hold because multiple active offers exist.");
         }
 
-        var targetRequest = BuildShadowTargetRequest(plan.Symbol, bucket);
+        var targetRequest = BuildShadowTargetRequest(plan.Symbol, bucket, symbolSettings);
         if (activeOffer is not null)
         {
             var shouldReplace = ShouldReplaceOffer(activeOffer, targetRequest, out var replaceReason);
@@ -2958,15 +2959,15 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             TimestampUtc: plan.TimestampUtc);
     }
 
-    private FundingOfferRequest BuildShadowTargetRequest(string symbol, FundingShadowBucket bucket)
+    private FundingOfferRequest BuildShadowTargetRequest(string symbol, FundingShadowBucket bucket, FundingSymbolRuntimeSettings symbolSettings)
     {
         var minPeriodDays = Math.Max(2, _options.MinPeriodDays);
         var maxPeriodDays = Math.Max(minPeriodDays, _options.MaxPeriodDays);
 
         return new FundingOfferRequest(
             Symbol: symbol,
-            Amount: decimal.Round(Math.Min(bucket.AllocationAmount, _options.MaxOfferAmount), 8, MidpointRounding.ToZero),
-            Rate: Math.Clamp(bucket.TargetRate, _options.MinDailyRate, _options.MaxDailyRate),
+            Amount: decimal.Round(Math.Min(bucket.AllocationAmount, symbolSettings.MaxOfferAmount), 8, MidpointRounding.ToZero),
+            Rate: Math.Clamp(bucket.TargetRate, symbolSettings.MinDailyRate, symbolSettings.MaxDailyRate),
             PeriodDays: Math.Clamp(bucket.TargetPeriodDays, minPeriodDays, maxPeriodDays),
             OfferType: string.IsNullOrWhiteSpace(_options.OfferType)
                 ? "LIMIT"
@@ -3191,11 +3192,11 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         };
     }
 
-    private decimal SelectShadowRate(decimal marketRate, decimal multiplier)
+    private decimal SelectShadowRate(decimal marketRate, decimal multiplier, FundingSymbolRuntimeSettings symbolSettings)
     {
-        var safeMarketRate = marketRate > 0m ? marketRate : _options.MinDailyRate;
+        var safeMarketRate = marketRate > 0m ? marketRate : symbolSettings.MinDailyRate;
         var scaled = safeMarketRate * multiplier;
-        return Math.Clamp(scaled, _options.MinDailyRate, _options.MaxDailyRate);
+        return Math.Clamp(scaled, symbolSettings.MinDailyRate, symbolSettings.MaxDailyRate);
     }
 
     private (decimal Rate, string Summary) SelectLiveRate(FundingTickerSnapshot ticker, FundingSymbolRuntimeSettings symbolSettings)
@@ -3209,8 +3210,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ? bidRate
                 : frrRate;
 
-        var safeAnchor = bookAnchor > 0m ? bookAnchor : _options.MinDailyRate;
-        var normalizedMode = NormalizeLiveRateMode(_options.LiveRateMode);
+        var safeAnchor = bookAnchor > 0m ? bookAnchor : symbolSettings.MinDailyRate;
+        var normalizedMode = NormalizeLiveRateMode(symbolSettings.LiveRateMode);
 
         decimal selectedRate;
         string summary;
@@ -3218,34 +3219,34 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         switch (normalizedMode)
         {
             case "BOOKASK":
-                selectedRate = Math.Clamp(safeAnchor, _options.MinDailyRate, _options.MaxDailyRate);
-                summary = $"rate_mode=BookAsk anchor={safeAnchor:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                selectedRate = Math.Clamp(safeAnchor, symbolSettings.MinDailyRate, symbolSettings.MaxDailyRate);
+                summary = $"rate_mode=BookAsk anchor={safeAnchor:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} band={symbolSettings.MinDailyRate:E6}..{symbolSettings.MaxDailyRate:E6}";
                 break;
 
             case "SHADOWMOTOR":
-                selectedRate = SelectShadowRate(safeAnchor, _options.MotorRateMultiplier);
-                summary = $"rate_mode=ShadowMotor anchor={safeAnchor:E6} mult={_options.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                selectedRate = SelectShadowRate(safeAnchor, symbolSettings.MotorRateMultiplier, symbolSettings);
+                summary = $"rate_mode=ShadowMotor anchor={safeAnchor:E6} mult={symbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} band={symbolSettings.MinDailyRate:E6}..{symbolSettings.MaxDailyRate:E6}";
                 break;
 
             case "SHADOWOPPORTUNISTIC":
-                selectedRate = SelectShadowRate(safeAnchor, _options.OpportunisticRateMultiplier);
-                summary = $"rate_mode=ShadowOpportunistic anchor={safeAnchor:E6} mult={_options.OpportunisticRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}";
+                selectedRate = SelectShadowRate(safeAnchor, symbolSettings.OpportunisticRateMultiplier, symbolSettings);
+                summary = $"rate_mode=ShadowOpportunistic anchor={safeAnchor:E6} mult={symbolSettings.OpportunisticRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} band={symbolSettings.MinDailyRate:E6}..{symbolSettings.MaxDailyRate:E6}";
                 break;
 
             default:
-                var anchor = _options.LiveUseFrrAsFloor && frrRate > 0m
+                var anchor = symbolSettings.LiveUseFrrAsFloor && frrRate > 0m
                     ? Math.Max(safeAnchor, frrRate)
                     : safeAnchor;
-                var regime = ClassifyMarketRegime(anchor);
+                var regime = ClassifyMarketRegime(anchor, symbolSettings);
                 var multiplier = regime switch
                 {
-                    "HOT" => Math.Max(1m, _options.LiveHotRegimeRateMultiplier),
-                    "LOW" => Math.Max(1m, _options.LiveLowRegimeRateMultiplier),
-                    _ => Math.Max(1m, _options.LiveNormalRegimeRateMultiplier)
+                    "HOT" => Math.Max(1m, symbolSettings.LiveHotRegimeRateMultiplier),
+                    "LOW" => Math.Max(1m, symbolSettings.LiveLowRegimeRateMultiplier),
+                    _ => Math.Max(1m, symbolSettings.LiveNormalRegimeRateMultiplier)
                 };
 
-                selectedRate = Math.Clamp(anchor * multiplier, _options.MinDailyRate, _options.MaxDailyRate);
-                summary = $"rate_mode=SmartRegime regime={regime} anchor={anchor:E6} mult={multiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} pause={symbolSettings.PauseNewOffers} reserve={symbolSettings.ReserveAmount:F2}";
+                selectedRate = Math.Clamp(anchor * multiplier, symbolSettings.MinDailyRate, symbolSettings.MaxDailyRate);
+                summary = $"rate_mode=SmartRegime regime={regime} anchor={anchor:E6} mult={multiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} pause={symbolSettings.PauseNewOffers} reserve={symbolSettings.ReserveAmount:F2} band={symbolSettings.MinDailyRate:E6}..{symbolSettings.MaxDailyRate:E6}";
                 break;
         }
 
@@ -3270,10 +3271,10 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         return rate > 0m ? rate.ToString("E6") : "n/a";
     }
 
-    private string ClassifyMarketRegime(decimal marketRate)
+    private string ClassifyMarketRegime(decimal marketRate, FundingSymbolRuntimeSettings symbolSettings)
     {
-        var minRate = _options.MinDailyRate;
-        var maxRate = Math.Max(minRate + 0.00000001m, _options.MaxDailyRate);
+        var minRate = symbolSettings.MinDailyRate;
+        var maxRate = Math.Max(minRate + 0.00000001m, symbolSettings.MaxDailyRate);
         var span = maxRate - minRate;
         var normalized = span <= 0m ? 0m : (marketRate - minRate) / span;
 
@@ -3286,23 +3287,23 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         return "NORMAL";
     }
 
-    private int GetMotorMaxWaitMinutes(string regime)
+    private int GetMotorMaxWaitMinutes(string regime, FundingSymbolRuntimeSettings symbolSettings)
     {
         return regime switch
         {
-            "HOT" => Math.Max(1, _options.MotorMaxWaitMinutesHotRegime),
-            "LOW" => Math.Max(1, _options.MotorMaxWaitMinutesLowRegime),
-            _ => Math.Max(1, _options.MotorMaxWaitMinutesNormalRegime)
+            "HOT" => Math.Max(1, symbolSettings.MotorMaxWaitMinutesHotRegime),
+            "LOW" => Math.Max(1, symbolSettings.MotorMaxWaitMinutesLowRegime),
+            _ => Math.Max(1, symbolSettings.MotorMaxWaitMinutesNormalRegime)
         };
     }
 
-    private int GetOpportunisticMaxWaitMinutes(string regime)
+    private int GetOpportunisticMaxWaitMinutes(string regime, FundingSymbolRuntimeSettings symbolSettings)
     {
         return regime switch
         {
-            "HOT" => Math.Max(1, _options.OpportunisticMaxWaitMinutesHotRegime),
-            "LOW" => Math.Max(1, _options.OpportunisticMaxWaitMinutesLowRegime),
-            _ => Math.Max(1, _options.OpportunisticMaxWaitMinutesNormalRegime)
+            "HOT" => Math.Max(1, symbolSettings.OpportunisticMaxWaitMinutesHotRegime),
+            "LOW" => Math.Max(1, symbolSettings.OpportunisticMaxWaitMinutesLowRegime),
+            _ => Math.Max(1, symbolSettings.OpportunisticMaxWaitMinutesNormalRegime)
         };
     }
 
@@ -3352,8 +3353,57 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             PauseNewOffers: profile?.PauseNewOffers ?? false,
             MinOfferAmount: profile?.MinOfferAmount ?? _options.MinOfferAmount,
             MaxOfferAmount: profile?.MaxOfferAmount ?? _options.MaxOfferAmount,
-            ReserveAmount: profile?.ReserveAmount ?? _options.ReserveAmount
+            ReserveAmount: profile?.ReserveAmount ?? _options.ReserveAmount,
+            MinDailyRate: profile?.MinDailyRate ?? _options.MinDailyRate,
+            MaxDailyRate: Math.Max(profile?.MinDailyRate ?? _options.MinDailyRate, profile?.MaxDailyRate ?? _options.MaxDailyRate),
+            LiveRateMode: string.IsNullOrWhiteSpace(profile?.LiveRateMode) ? _options.LiveRateMode : profile!.LiveRateMode!.Trim(),
+            LiveUseFrrAsFloor: profile?.LiveUseFrrAsFloor ?? _options.LiveUseFrrAsFloor,
+            LiveLowRegimeRateMultiplier: profile?.LiveLowRegimeRateMultiplier ?? _options.LiveLowRegimeRateMultiplier,
+            LiveNormalRegimeRateMultiplier: profile?.LiveNormalRegimeRateMultiplier ?? _options.LiveNormalRegimeRateMultiplier,
+            LiveHotRegimeRateMultiplier: profile?.LiveHotRegimeRateMultiplier ?? _options.LiveHotRegimeRateMultiplier,
+            MotorAllocationFraction: profile?.MotorAllocationFraction ?? _options.MotorAllocationFraction,
+            OpportunisticAllocationFraction: profile?.OpportunisticAllocationFraction ?? _options.OpportunisticAllocationFraction,
+            MotorRateMultiplier: profile?.MotorRateMultiplier ?? _options.MotorRateMultiplier,
+            OpportunisticRateMultiplier: profile?.OpportunisticRateMultiplier ?? _options.OpportunisticRateMultiplier,
+            MotorMaxWaitMinutesLowRegime: profile?.MotorMaxWaitMinutesLowRegime ?? _options.MotorMaxWaitMinutesLowRegime,
+            MotorMaxWaitMinutesNormalRegime: profile?.MotorMaxWaitMinutesNormalRegime ?? _options.MotorMaxWaitMinutesNormalRegime,
+            MotorMaxWaitMinutesHotRegime: profile?.MotorMaxWaitMinutesHotRegime ?? _options.MotorMaxWaitMinutesHotRegime,
+            OpportunisticMaxWaitMinutesLowRegime: profile?.OpportunisticMaxWaitMinutesLowRegime ?? _options.OpportunisticMaxWaitMinutesLowRegime,
+            OpportunisticMaxWaitMinutesNormalRegime: profile?.OpportunisticMaxWaitMinutesNormalRegime ?? _options.OpportunisticMaxWaitMinutesNormalRegime,
+            OpportunisticMaxWaitMinutesHotRegime: profile?.OpportunisticMaxWaitMinutesHotRegime ?? _options.OpportunisticMaxWaitMinutesHotRegime
         );
+    }
+
+    private void LogEffectiveSymbolSettings()
+    {
+        foreach (var symbol in GetPreferredSymbols())
+        {
+            var settings = ResolveSymbolSettings(symbol);
+            _log.Information(
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
+                settings.Symbol,
+                settings.Enabled,
+                settings.PauseNewOffers,
+                settings.ReserveAmount,
+                settings.MinOfferAmount,
+                settings.MaxOfferAmount,
+                settings.LiveRateMode,
+                settings.MinDailyRate,
+                settings.MaxDailyRate,
+                settings.LiveLowRegimeRateMultiplier,
+                settings.LiveNormalRegimeRateMultiplier,
+                settings.LiveHotRegimeRateMultiplier,
+                settings.MotorAllocationFraction,
+                settings.OpportunisticAllocationFraction,
+                settings.MotorRateMultiplier,
+                settings.OpportunisticRateMultiplier,
+                settings.MotorMaxWaitMinutesLowRegime,
+                settings.MotorMaxWaitMinutesNormalRegime,
+                settings.MotorMaxWaitMinutesHotRegime,
+                settings.OpportunisticMaxWaitMinutesLowRegime,
+                settings.OpportunisticMaxWaitMinutesNormalRegime,
+                settings.OpportunisticMaxWaitMinutesHotRegime);
+        }
     }
 
     private static string FundingSymbolToCurrency(string fundingSymbol)
@@ -3471,7 +3521,24 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         bool PauseNewOffers,
         decimal MinOfferAmount,
         decimal MaxOfferAmount,
-        decimal ReserveAmount);
+        decimal ReserveAmount,
+        decimal MinDailyRate,
+        decimal MaxDailyRate,
+        string LiveRateMode,
+        bool LiveUseFrrAsFloor,
+        decimal LiveLowRegimeRateMultiplier,
+        decimal LiveNormalRegimeRateMultiplier,
+        decimal LiveHotRegimeRateMultiplier,
+        decimal MotorAllocationFraction,
+        decimal OpportunisticAllocationFraction,
+        decimal MotorRateMultiplier,
+        decimal OpportunisticRateMultiplier,
+        int MotorMaxWaitMinutesLowRegime,
+        int MotorMaxWaitMinutesNormalRegime,
+        int MotorMaxWaitMinutesHotRegime,
+        int OpportunisticMaxWaitMinutesLowRegime,
+        int OpportunisticMaxWaitMinutesNormalRegime,
+        int OpportunisticMaxWaitMinutesHotRegime);
 
     private sealed record FundingLifecycleAllocationCandidate(
         string Kind,

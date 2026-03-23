@@ -1288,11 +1288,39 @@ Current per-symbol controls:
 - `MaxOfferAmount`
 - `ReserveAmount`
 
+Advanced per-symbol controls:
+
+- `MinDailyRate`
+- `MaxDailyRate`
+- `LiveRateMode`
+- `LiveUseFrrAsFloor`
+- `LiveLowRegimeRateMultiplier`
+- `LiveNormalRegimeRateMultiplier`
+- `LiveHotRegimeRateMultiplier`
+- `MotorAllocationFraction`
+- `OpportunisticAllocationFraction`
+- `MotorRateMultiplier`
+- `OpportunisticRateMultiplier`
+- `MotorMaxWaitMinutesLowRegime`
+- `MotorMaxWaitMinutesNormalRegime`
+- `MotorMaxWaitMinutesHotRegime`
+- `OpportunisticMaxWaitMinutesLowRegime`
+- `OpportunisticMaxWaitMinutesNormalRegime`
+- `OpportunisticMaxWaitMinutesHotRegime`
+
 Practical meaning:
 
 - one symbol can be paused while another stays live
 - one symbol can keep a larger reserve while another stays more active
 - one symbol can be disabled without removing it from the general funding module
+- one symbol can be more aggressive on rate band / regime multiplier while another stays conservative
+- one symbol can keep a tighter `Motor` wait budget while another tolerates more `Opportunistic` waiting
+
+Operational visibility:
+
+- startup now emits one `[BFX-FUND] symbol-profile ...` line per enabled symbol
+- that line shows the effective merged runtime profile after global defaults plus per-symbol overrides
+- this makes live funding behavior auditable before any new offer is placed
 
 Important boundary:
 

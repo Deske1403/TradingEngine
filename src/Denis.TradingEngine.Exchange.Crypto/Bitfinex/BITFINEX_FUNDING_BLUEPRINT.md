@@ -430,6 +430,21 @@ Status:
   - `MinOfferAmount`
   - `MaxOfferAmount`
   - `ReserveAmount`
+- symbol-specific profiles now also support advanced smart/shadow tuning on:
+  - `MinDailyRate`
+  - `MaxDailyRate`
+  - `LiveRateMode`
+  - `LiveUseFrrAsFloor`
+  - `LiveLowRegimeRateMultiplier`
+  - `LiveNormalRegimeRateMultiplier`
+  - `LiveHotRegimeRateMultiplier`
+  - `MotorAllocationFraction`
+  - `OpportunisticAllocationFraction`
+  - `MotorRateMultiplier`
+  - `OpportunisticRateMultiplier`
+  - `MotorMaxWaitMinutesLow/Normal/HotRegime`
+  - `OpportunisticMaxWaitMinutesLow/Normal/HotRegime`
+- startup now logs the effective runtime profile per symbol so live behavior is auditable before the first funding cycle
 - the engine now computes and logs a `Motor / Opportunistic` funding plan per symbol for observation only
 - shadow plans now persist into `funding_shadow_plans`
 - latest shadow intent can now be compared against realized book outcomes through `v_funding_shadow_vs_actual`
