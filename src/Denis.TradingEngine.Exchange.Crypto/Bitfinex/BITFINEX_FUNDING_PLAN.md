@@ -1270,10 +1270,30 @@ Practical effect:
 - `HOT` regime allows a somewhat larger premium
 - live placement is now a little smarter without yet promoting full wait/fallback control from shadow into live logic
 
+Live runtime now also supports a separate placement-policy gate through `LivePlacementPolicyMode`.
+
+Supported modes:
+
+- `Immediate`
+- `MotorWaitFallback`
+
+`MotorWaitFallback` behavior:
+
+- keep the current live rate selection as the target
+- if there is no active offer and regime is not `HOT`, wait for a bounded `Motor` window instead of placing immediately
+- after the wait budget expires, fall back to a `Motor`-derived rate and place then
+- if regime is `HOT`, or target and fallback are effectively the same, place immediately
+
+Practical meaning:
+
+- fresh live entries now have a first real `wait -> fallback` behavior
+- managed active-offer repricing still stays on the separate `ManagedOfferTargetMode` promotion path
+- this is the first live bridge from the blueprint toward execution-aware pricing, without handing full shadow policy control to live runtime
+
 Important boundary:
 
-- stateful `wait / fallback / repricing policy` still belongs to the shadow layer
-- this slice only improves live rate selection
+- full shadow action semantics still remain richer than live
+- this slice only promotes the narrow `Motor` timing behavior for fresh placements
 - it does not yet make live placement fully shadow-driven
 
 ## Managed-offer promotion gate

@@ -474,8 +474,15 @@ Status:
 - the shadow layer now also groups consecutive action-policy observations into stateful sessions
 - those sessions persist into `funding_shadow_action_sessions`
 - latest session state can now be compared against live actions and book outcomes through `v_funding_shadow_session_vs_actual`
-- full stateful `wait / fallback / repricing` policy is still shadow-only
-- next task is to validate that shadow plan + shadow action storage stay coherent over real return cycles before allowing those plans to drive live placement
+- live now also supports a first bounded placement-policy gate for fresh entries:
+  - `Immediate`
+  - `MotorWaitFallback`
+- `MotorWaitFallback` is a narrow live promotion of the blueprint idea:
+  - if there is no active offer and regime is not `HOT`, the engine can wait for a bounded `Motor` window instead of placing immediately
+  - after the wait budget expires, it falls back to the `Motor` rate derived from the current market anchor
+  - active-offer repricing still follows the separate managed-offer promotion path
+- this gives us the first real live `wait -> fallback` behavior without promoting the whole shadow action system into live mutation logic
+- next task is to validate this behavior over real return cycles before allowing more aggressive live promotion
 
 ### Step 5. Add Opportunistic Layer
 

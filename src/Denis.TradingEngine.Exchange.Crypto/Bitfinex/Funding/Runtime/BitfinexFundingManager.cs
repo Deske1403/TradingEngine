@@ -24,10 +24,12 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private readonly object _offersSync = new();
     private readonly object _walletsSync = new();
     private readonly object _shadowSync = new();
+    private readonly object _livePlacementSync = new();
     private readonly Dictionary<string, FundingOfferInfo> _activeOffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _managedOfferIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FundingWalletBalance> _latestWalletBalances = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FundingShadowActionSession> _shadowActionSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FundingLivePlacementWaitState> _livePlacementWaitStates = new(StringComparer.OrdinalIgnoreCase);
 
     private CancellationTokenSource? _linkedCts;
     private Task? _loopTask;
@@ -226,6 +228,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             FundingDecision decision;
             if (candidate is null)
             {
+                ClearLivePlacementWaitState(symbol);
                 decision = skipDecision!;
             }
             else
@@ -445,6 +448,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         if (candidate.PauseNewOffers)
         {
+            ClearLivePlacementWaitState(candidate.Symbol);
             return new FundingDecision(
                 Action: activeOffers.Count == 0
                     ? "skip_symbol_paused"
@@ -468,6 +472,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         if (activeOffers.Count > 1)
         {
+            ClearLivePlacementWaitState(candidate.Symbol);
             return new FundingDecision(
                 Action: "skip_multiple_active_offers",
                 IsDryRun: _options.DryRun,
@@ -487,6 +492,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         if (activeOffers.Count == 1)
         {
+            ClearLivePlacementWaitState(candidate.Symbol);
             var activeOffer = activeOffers[0];
             var canManageExisting = _options.AllowManagingExternalOffers || IsManagedOffer(activeOffer.OfferId);
             if (!canManageExisting)
@@ -545,8 +551,60 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             );
         }
 
+        return BuildFreshPlacementDecision(candidate, nowUtc);
+    }
+
+    private FundingDecision BuildFreshPlacementDecision(FundingPlacementCandidate candidate, DateTime nowUtc)
+    {
+        var policy = ResolveLivePlacementPolicy(candidate);
+        if (policy.PlaceImmediately)
+        {
+            ClearLivePlacementWaitState(candidate.Symbol);
+
+            return new FundingDecision(
+                Action: _options.DryRun ? "would_place" : "place",
+                IsDryRun: _options.DryRun,
+                IsActionable: true,
+                Symbol: candidate.Symbol,
+                Currency: candidate.Currency,
+                WalletType: candidate.WalletType,
+                AvailableBalance: candidate.AvailableBalance,
+                LendableBalance: candidate.LendableBalance,
+                ProposedAmount: policy.TargetRequest.Amount,
+                ProposedRate: policy.TargetRequest.Rate,
+                ProposedPeriodDays: policy.TargetRequest.PeriodDays,
+                Reason: _options.DryRun
+                    ? $"Dry-run funding recommendation generated from market snapshot and funding wallet availability. {policy.TargetSummary}"
+                    : $"Funding offer should be submitted. {policy.TargetSummary}",
+                TimestampUtc: nowUtc
+            );
+        }
+
+        var waitState = GetOrCreateLivePlacementWaitState(candidate, policy, nowUtc, out var isNewState);
+        if (nowUtc < waitState.DeadlineUtc)
+        {
+            var waitRemaining = waitState.DeadlineUtc - nowUtc;
+            return new FundingDecision(
+                Action: "wait_for_target_rate",
+                IsDryRun: _options.DryRun,
+                IsActionable: false,
+                Symbol: candidate.Symbol,
+                Currency: candidate.Currency,
+                WalletType: candidate.WalletType,
+                AvailableBalance: candidate.AvailableBalance,
+                LendableBalance: candidate.LendableBalance,
+                ProposedAmount: policy.TargetRequest.Amount,
+                ProposedRate: policy.TargetRequest.Rate,
+                ProposedPeriodDays: policy.TargetRequest.PeriodDays,
+                Reason: isNewState
+                    ? $"Starting live wait window for target funding rate until {waitState.DeadlineUtc:O}. {policy.TargetSummary} fallback={policy.FallbackSummary}"
+                    : $"Waiting for target funding rate until {waitState.DeadlineUtc:O} ({Math.Ceiling(waitRemaining.TotalMinutes):F0}m remaining). {policy.TargetSummary} fallback={policy.FallbackSummary}",
+                TimestampUtc: nowUtc
+            );
+        }
+
         return new FundingDecision(
-            Action: _options.DryRun ? "would_place" : "place",
+            Action: _options.DryRun ? "would_place_after_wait_fallback" : "place_after_wait_fallback",
             IsDryRun: _options.DryRun,
             IsActionable: true,
             Symbol: candidate.Symbol,
@@ -554,14 +612,126 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             WalletType: candidate.WalletType,
             AvailableBalance: candidate.AvailableBalance,
             LendableBalance: candidate.LendableBalance,
-            ProposedAmount: candidate.Request.Amount,
-            ProposedRate: candidate.Request.Rate,
-            ProposedPeriodDays: candidate.Request.PeriodDays,
+            ProposedAmount: policy.FallbackRequest.Amount,
+            ProposedRate: policy.FallbackRequest.Rate,
+            ProposedPeriodDays: policy.FallbackRequest.PeriodDays,
             Reason: _options.DryRun
-                ? $"Dry-run funding recommendation generated from market snapshot and funding wallet availability. {candidate.RateSelectionSummary}"
-                : $"Funding offer should be submitted. {candidate.RateSelectionSummary}",
+                ? $"Dry-run fallback submit after wait budget expired at {waitState.DeadlineUtc:O}. {policy.FallbackSummary}"
+                : $"Wait budget expired at {waitState.DeadlineUtc:O}; funding offer should fall back now. {policy.FallbackSummary}",
             TimestampUtc: nowUtc
         );
+    }
+
+    private FundingLivePlacementPolicy ResolveLivePlacementPolicy(FundingPlacementCandidate candidate)
+    {
+        var normalizedMode = NormalizeLivePlacementPolicyMode(candidate.SymbolSettings.LivePlacementPolicyMode);
+        if (normalizedMode != "MOTORWAITFALLBACK")
+        {
+            return new FundingLivePlacementPolicy(
+                Mode: normalizedMode,
+                Regime: "n/a",
+                MaxWaitMinutes: 0,
+                TargetRequest: candidate.Request,
+                FallbackRequest: candidate.Request,
+                TargetSummary: $"placement_policy=Immediate {candidate.RateSelectionSummary}",
+                FallbackSummary: $"placement_policy=Immediate {candidate.RateSelectionSummary}",
+                PlaceImmediately: true);
+        }
+
+        var askRate = candidate.Ticker.AskRate > 0m ? candidate.Ticker.AskRate : 0m;
+        var bidRate = candidate.Ticker.BidRate > 0m ? candidate.Ticker.BidRate : 0m;
+        var frrRate = candidate.Ticker.Frr.GetValueOrDefault() > 0m ? candidate.Ticker.Frr.GetValueOrDefault() : 0m;
+        var bookAnchor = askRate > 0m
+            ? askRate
+            : bidRate > 0m
+                ? bidRate
+                : frrRate;
+        var safeAnchor = bookAnchor > 0m ? bookAnchor : candidate.SymbolSettings.MinDailyRate;
+        var regimeAnchor = candidate.SymbolSettings.LiveUseFrrAsFloor && frrRate > 0m
+            ? Math.Max(safeAnchor, frrRate)
+            : safeAnchor;
+        var regime = ClassifyMarketRegime(regimeAnchor, candidate.SymbolSettings);
+        var maxWaitMinutes = GetMotorMaxWaitMinutes(regime, candidate.SymbolSettings);
+        var fallbackRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
+        var fallbackRequest = candidate.Request with { Rate = fallbackRate };
+        var placeImmediately =
+            string.Equals(regime, "HOT", StringComparison.OrdinalIgnoreCase) ||
+            Math.Abs(candidate.Request.Rate - fallbackRate) < _options.ReplaceMinRateDelta;
+
+        return new FundingLivePlacementPolicy(
+            Mode: normalizedMode,
+            Regime: regime,
+            MaxWaitMinutes: maxWaitMinutes,
+            TargetRequest: candidate.Request,
+            FallbackRequest: fallbackRequest,
+            TargetSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={maxWaitMinutes}m target={candidate.Request.Rate:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} {candidate.RateSelectionSummary}",
+            FallbackSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={maxWaitMinutes}m fallback={fallbackRate:E6} motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+            PlaceImmediately: placeImmediately);
+    }
+
+    private FundingLivePlacementWaitState GetOrCreateLivePlacementWaitState(
+        FundingPlacementCandidate candidate,
+        FundingLivePlacementPolicy policy,
+        DateTime nowUtc,
+        out bool isNewState)
+    {
+        lock (_livePlacementSync)
+        {
+            if (_livePlacementWaitStates.TryGetValue(candidate.Symbol, out var existing) &&
+                !RequiresLivePlacementWaitReset(existing, policy, candidate))
+            {
+                var refreshed = existing with { LastSeenUtc = nowUtc };
+                _livePlacementWaitStates[candidate.Symbol] = refreshed;
+                isNewState = false;
+                return refreshed;
+            }
+
+            var created = new FundingLivePlacementWaitState(
+                Symbol: candidate.Symbol,
+                Regime: policy.Regime,
+                Amount: candidate.Request.Amount,
+                PeriodDays: candidate.Request.PeriodDays,
+                TargetRate: policy.TargetRequest.Rate,
+                FallbackRate: policy.FallbackRequest.Rate,
+                StartedUtc: nowUtc,
+                DeadlineUtc: nowUtc.AddMinutes(Math.Max(1, policy.MaxWaitMinutes)),
+                LastSeenUtc: nowUtc);
+
+            _livePlacementWaitStates[candidate.Symbol] = created;
+            isNewState = true;
+            return created;
+        }
+    }
+
+    private bool RequiresLivePlacementWaitReset(
+        FundingLivePlacementWaitState existing,
+        FundingLivePlacementPolicy policy,
+        FundingPlacementCandidate candidate)
+    {
+        if (!string.Equals(existing.Regime, policy.Regime, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (existing.Amount != candidate.Request.Amount || existing.PeriodDays != candidate.Request.PeriodDays)
+            return true;
+
+        if (Math.Abs(existing.TargetRate - policy.TargetRequest.Rate) >= _options.ReplaceMinRateDelta)
+            return true;
+
+        if (Math.Abs(existing.FallbackRate - policy.FallbackRequest.Rate) >= _options.ReplaceMinRateDelta)
+            return true;
+
+        return false;
+    }
+
+    private void ClearLivePlacementWaitState(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+            return;
+
+        lock (_livePlacementSync)
+        {
+            _livePlacementWaitStates.Remove(symbol);
+        }
     }
 
     private FundingWalletBalance? FindWalletBalance(IReadOnlyList<FundingWalletBalance> wallets, string currency)
@@ -636,11 +806,12 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         switch (decision.Action)
         {
             case "place":
+            case "place_after_wait_fallback":
             {
                 if (candidate is null)
                 {
                     return CreateLocalActionResult(
-                        action: "submit_offer",
+                        action: decision.Action == "place_after_wait_fallback" ? "submit_offer_after_wait_fallback" : "submit_offer",
                         success: false,
                         symbol: decision.Symbol,
                         offerId: null,
@@ -648,10 +819,12 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                         message: "Missing placement candidate for live funding submit.");
                 }
 
-                var result = await _api.SubmitOfferAsync(candidate.Request, ct).ConfigureAwait(false);
+                var request = BuildDecisionRequest(candidate, decision);
+                var result = await _api.SubmitOfferAsync(request, ct).ConfigureAwait(false);
                 if (result.Success && !string.IsNullOrWhiteSpace(result.OfferId))
                 {
                     RememberManagedOffer(result.OfferId);
+                    ClearLivePlacementWaitState(candidate.Symbol);
                 }
 
                 if (result.Success)
@@ -752,6 +925,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             Offer: null,
             TimestampUtc: DateTime.UtcNow
         );
+    }
+
+    private static FundingOfferRequest BuildDecisionRequest(FundingPlacementCandidate candidate, FundingDecision decision)
+    {
+        return candidate.Request with
+        {
+            Amount = decision.ProposedAmount ?? candidate.Request.Amount,
+            Rate = decision.ProposedRate ?? candidate.Request.Rate,
+            PeriodDays = decision.ProposedPeriodDays ?? candidate.Request.PeriodDays
+        };
     }
 
     private async Task RefreshActiveOffersForSymbolAsync(string symbol, CancellationToken ct)
@@ -1331,6 +1514,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             {
                 var creditCandidates = FindMatchingCredits(trade, credits);
                 var loanCandidates = FindMatchingLoans(trade, loans);
+                var matchedCredit = SelectPreferredCreditMatch(trade, creditCandidates);
+                var matchedLoan = SelectPreferredLoanMatch(trade, loanCandidates);
 
                 return new FundingTradeRecord(
                     Utc: trade.Utc,
@@ -1338,8 +1523,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     FundingTradeId: trade.FundingTradeId,
                     Symbol: trade.Symbol,
                     OfferId: trade.OfferId,
-                    CreditId: creditCandidates.Count == 1 ? creditCandidates[0].CreditId : null,
-                    LoanId: loanCandidates.Count == 1 ? loanCandidates[0].LoanId : null,
+                    CreditId: matchedCredit?.CreditId,
+                    LoanId: matchedLoan?.LoanId,
                     Amount: trade.Amount,
                     Rate: trade.Rate,
                     PeriodDays: trade.PeriodDays,
@@ -1348,6 +1533,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     {
                         CreditMatchCount = creditCandidates.Count,
                         LoanMatchCount = loanCandidates.Count,
+                        MatchedCreditId = matchedCredit?.CreditId,
+                        MatchedLoanId = matchedLoan?.LoanId,
                         trade.Metadata
                     });
             })
@@ -2056,9 +2243,11 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .Where(credit =>
                 string.Equals(credit.Symbol, trade.Symbol, StringComparison.OrdinalIgnoreCase) &&
                 AreClose(Math.Abs(credit.Amount), Math.Abs(trade.Amount), 0.00000001m) &&
-                (!trade.Rate.HasValue || !credit.Rate.HasValue || AreClose(credit.Rate.Value, trade.Rate.Value, 0.00000050m)) &&
                 (!trade.PeriodDays.HasValue || !credit.PeriodDays.HasValue || trade.PeriodDays.Value == credit.PeriodDays.Value) &&
-                IsLifecycleRecordRelevantAt(credit.CreatedUtc, credit.OpenedUtc, credit.ClosedUtc, trade.Utc))
+                IsTradeLifecycleRecordRelevantAt(credit.CreatedUtc, credit.OpenedUtc, trade.Utc))
+            .OrderBy(credit => GetTradeLifecycleLinkScore(trade.Utc, trade.Rate, credit.CreatedUtc, credit.OpenedUtc, credit.Rate))
+            .ThenByDescending(credit => credit.OpenedUtc ?? credit.CreatedUtc ?? DateTime.MinValue)
+            .ThenByDescending(credit => credit.CreditId)
             .ToArray();
     }
 
@@ -2070,10 +2259,40 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .Where(loan =>
                 string.Equals(loan.Symbol, trade.Symbol, StringComparison.OrdinalIgnoreCase) &&
                 AreClose(Math.Abs(loan.Amount), Math.Abs(trade.Amount), 0.00000001m) &&
-                (!trade.Rate.HasValue || !loan.Rate.HasValue || AreClose(loan.Rate.Value, trade.Rate.Value, 0.00000050m)) &&
                 (!trade.PeriodDays.HasValue || !loan.PeriodDays.HasValue || trade.PeriodDays.Value == loan.PeriodDays.Value) &&
-                IsLifecycleRecordRelevantAt(loan.CreatedUtc, loan.OpenedUtc, loan.ClosedUtc, trade.Utc))
+                IsTradeLifecycleRecordRelevantAt(loan.CreatedUtc, loan.OpenedUtc, trade.Utc))
+            .OrderBy(loan => GetTradeLifecycleLinkScore(trade.Utc, trade.Rate, loan.CreatedUtc, loan.OpenedUtc, loan.Rate))
+            .ThenByDescending(loan => loan.OpenedUtc ?? loan.CreatedUtc ?? DateTime.MinValue)
+            .ThenByDescending(loan => loan.LoanId)
             .ToArray();
+    }
+
+    private static FundingCreditStateRecord? SelectPreferredCreditMatch(
+        FundingTradeInfo trade,
+        IReadOnlyList<FundingCreditStateRecord> candidates)
+    {
+        if (candidates.Count == 0)
+            return null;
+
+        return candidates
+            .OrderBy(candidate => GetTradeLifecycleLinkScore(trade.Utc, trade.Rate, candidate.CreatedUtc, candidate.OpenedUtc, candidate.Rate))
+            .ThenByDescending(candidate => candidate.OpenedUtc ?? candidate.CreatedUtc ?? DateTime.MinValue)
+            .ThenByDescending(candidate => candidate.CreditId)
+            .First();
+    }
+
+    private static FundingLoanStateRecord? SelectPreferredLoanMatch(
+        FundingTradeInfo trade,
+        IReadOnlyList<FundingLoanStateRecord> candidates)
+    {
+        if (candidates.Count == 0)
+            return null;
+
+        return candidates
+            .OrderBy(candidate => GetTradeLifecycleLinkScore(trade.Utc, trade.Rate, candidate.CreatedUtc, candidate.OpenedUtc, candidate.Rate))
+            .ThenByDescending(candidate => candidate.OpenedUtc ?? candidate.CreatedUtc ?? DateTime.MinValue)
+            .ThenByDescending(candidate => candidate.LoanId)
+            .First();
     }
 
     private static bool IsClosedLifecycleStatus(string? status)
@@ -2105,6 +2324,37 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         var closed = closedUtc ?? targetUtc.AddDays(1);
 
         return targetUtc >= opened.AddMinutes(-5) && targetUtc <= closed.AddDays(1);
+    }
+
+    private static bool IsTradeLifecycleRecordRelevantAt(
+        DateTime? createdUtc,
+        DateTime? openedUtc,
+        DateTime targetUtc)
+    {
+        var anchor = openedUtc ?? createdUtc;
+        if (!anchor.HasValue)
+            return false;
+
+        // Funding trades should map to the lifecycle that opened nearest the trade time,
+        // not to any lifecycle that merely remained "relevant" for hours afterward.
+        return targetUtc >= anchor.Value.AddMinutes(-5) &&
+               targetUtc <= anchor.Value.AddMinutes(20);
+    }
+
+    private static decimal GetTradeLifecycleLinkScore(
+        DateTime tradeUtc,
+        decimal? tradeRate,
+        DateTime? createdUtc,
+        DateTime? openedUtc,
+        decimal? lifecycleRate)
+    {
+        var anchorUtc = openedUtc ?? createdUtc ?? tradeUtc;
+        var timeDistanceSeconds = Math.Abs((decimal)(tradeUtc - anchorUtc).TotalSeconds);
+        var rateDistance = tradeRate.HasValue && lifecycleRate.HasValue
+            ? Math.Abs(tradeRate.Value - lifecycleRate.Value) * 1_000_000_000m
+            : 0m;
+
+        return timeDistanceSeconds + rateDistance;
     }
 
     private static bool AreClose(decimal left, decimal right, decimal tolerance)
@@ -3382,6 +3632,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ToUpperInvariant();
     }
 
+    private static string NormalizeLivePlacementPolicyMode(string? placementPolicyMode)
+    {
+        if (string.IsNullOrWhiteSpace(placementPolicyMode))
+            return "IMMEDIATE";
+
+        return placementPolicyMode
+            .Trim()
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .ToUpperInvariant();
+    }
+
     private static string NormalizeManagedOfferTargetMode(string? targetMode)
     {
         if (string.IsNullOrWhiteSpace(targetMode))
@@ -3486,6 +3749,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             MinDailyRate: profile?.MinDailyRate ?? _options.MinDailyRate,
             MaxDailyRate: Math.Max(profile?.MinDailyRate ?? _options.MinDailyRate, profile?.MaxDailyRate ?? _options.MaxDailyRate),
             LiveRateMode: string.IsNullOrWhiteSpace(profile?.LiveRateMode) ? _options.LiveRateMode : profile!.LiveRateMode!.Trim(),
+            LivePlacementPolicyMode: string.IsNullOrWhiteSpace(profile?.LivePlacementPolicyMode) ? _options.LivePlacementPolicyMode : profile!.LivePlacementPolicyMode!.Trim(),
             ManagedOfferTargetMode: string.IsNullOrWhiteSpace(profile?.ManagedOfferTargetMode) ? _options.ManagedOfferTargetMode : profile!.ManagedOfferTargetMode!.Trim(),
             LiveUseFrrAsFloor: profile?.LiveUseFrrAsFloor ?? _options.LiveUseFrrAsFloor,
             LiveLowRegimeRateMultiplier: profile?.LiveLowRegimeRateMultiplier ?? _options.LiveLowRegimeRateMultiplier,
@@ -3510,7 +3774,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var settings = ResolveSymbolSettings(symbol);
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} managedTarget={ManagedTarget} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -3518,6 +3782,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.MinOfferAmount,
                 settings.MaxOfferAmount,
                 settings.LiveRateMode,
+                settings.LivePlacementPolicyMode,
                 settings.ManagedOfferTargetMode,
                 settings.MinDailyRate,
                 settings.MaxDailyRate,
@@ -3658,6 +3923,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal MinDailyRate,
         decimal MaxDailyRate,
         string LiveRateMode,
+        string LivePlacementPolicyMode,
         string ManagedOfferTargetMode,
         bool LiveUseFrrAsFloor,
         decimal LiveLowRegimeRateMultiplier,
@@ -3673,6 +3939,27 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         int OpportunisticMaxWaitMinutesLowRegime,
         int OpportunisticMaxWaitMinutesNormalRegime,
         int OpportunisticMaxWaitMinutesHotRegime);
+
+    private sealed record FundingLivePlacementPolicy(
+        string Mode,
+        string Regime,
+        int MaxWaitMinutes,
+        FundingOfferRequest TargetRequest,
+        FundingOfferRequest FallbackRequest,
+        string TargetSummary,
+        string FallbackSummary,
+        bool PlaceImmediately);
+
+    private sealed record FundingLivePlacementWaitState(
+        string Symbol,
+        string Regime,
+        decimal Amount,
+        int PeriodDays,
+        decimal TargetRate,
+        decimal FallbackRate,
+        DateTime StartedUtc,
+        DateTime DeadlineUtc,
+        DateTime LastSeenUtc);
 
     private sealed record FundingLifecycleAllocationCandidate(
         string Kind,
