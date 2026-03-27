@@ -97,6 +97,34 @@ namespace Denis.TradingEngine.App.Trading
         /// </summary>
         public bool EnableStopLimitOutsideRth { get; init; } = false;
 
+        /// <summary>
+        /// Opciona zaštita koja, kada trade pokaže mali profit,
+        /// armira "protect stop" oko break-even nivoa.
+        /// Ako je Enabled=false, engine radi identično kao do sada.
+        /// </summary>
+        public ProtectTradeSettings ProtectTrade { get; init; } = new();
+
+    }
+
+    public sealed class ProtectTradeSettings
+    {
+        /// <summary>
+        /// Feature flag za protect-trade ponašanje.
+        /// false = stari behavior, true = aktiviraj break-even zaštitu.
+        /// </summary>
+        public bool Enabled { get; init; } = false;
+
+        /// <summary>
+        /// Profit trigger kao frakcija cene.
+        /// Primer: 0.0040 = +0.40%.
+        /// </summary>
+        public decimal ArmProfitPct { get; init; } = 0.0040m;
+
+        /// <summary>
+        /// Offset u odnosu na entry za zaštitni stop.
+        /// Primer: 0.0000 = čist break-even, 0.0005 = +0.05%.
+        /// </summary>
+        public decimal StopOffsetPct { get; init; } = 0.0000m;
     }
 
     /// <summary>
@@ -140,6 +168,11 @@ namespace Denis.TradingEngine.App.Trading
         public decimal? LastClosePrice { get; set; }  // poslednja cena pre zatvaranja (za gap detection)
         public DateTime? LastCloseUtc { get; set; }    // kada je poslednji put zatvoreno (za gap detection)
         public bool GapExitExecuted { get; set; }      // da li je gap exit već izvršen (da ne duplira)
+
+        // Profit protection state
+        public bool ProtectTradeArmed { get; set; }
+        public DateTime? ProtectTradeArmedUtc { get; set; }
+        public decimal? ProtectTradeStop { get; set; }
     }
 
 }

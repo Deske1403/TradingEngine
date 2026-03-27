@@ -91,6 +91,9 @@ namespace Denis.TradingEngine.App.Trading
             if (corr.StartsWith("exit-swing-weekend-", StringComparison.OrdinalIgnoreCase))
                 return (SwingExitReason.SwingWeekend, true);
 
+            if (corr.StartsWith("exit-swing-protect-", StringComparison.OrdinalIgnoreCase))
+                return (SwingExitReason.TrailExit, true);
+
             if (corr.StartsWith("exit-swing-", StringComparison.OrdinalIgnoreCase))
                 return (SwingExitReason.SwingMaxDays, true);   // fallback, ne bi trebalo da se desi
 

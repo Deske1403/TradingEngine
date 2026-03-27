@@ -109,6 +109,8 @@ namespace Denis.TradingEngine.App.Trading
         private readonly TimeSpan _maxHoldTime;
         // cumulative filled po orderu (koristi se samo za REAL fill-ove)
         private readonly Dictionary<string, decimal> _cumFilledByCorrId = new(StringComparer.Ordinal);
+        // Discord user-facing notifikacije grupišemo po correlationId da partial fill ne spamuje kanal.
+        private readonly Dictionary<string, AggregatedDiscordFillNotification> _discordFillByCorrId = new(StringComparer.Ordinal);
         private readonly decimal _minFreeCashUsd;
         // global strategy rate-limit (max X signala u Y sekundi)
         private readonly int _maxSignalsPerWindow = 5;
@@ -311,6 +313,12 @@ namespace Denis.TradingEngine.App.Trading
                 _swingConfig.CloseBeforeWeekend,
                 _swingConfig.WeekendCutoffUtc
             );
+
+            _log.Information(
+                "[PROTECT-TRADE-CONFIG] Enabled={Enabled} ArmProfitPct={ArmPct:P2} StopOffsetPct={StopOffset:P2}",
+                _settings.ProtectTrade.Enabled,
+                _settings.ProtectTrade.ArmProfitPct,
+                _settings.ProtectTrade.StopOffsetPct);
 
 
 
@@ -1157,36 +1165,7 @@ namespace Denis.TradingEngine.App.Trading
             {
                 realizedPnl = _positionBook.ApplyBuyFill(req.Symbol.Ticker, req.Quantity, fillPx);
                 _cashService.OnBuyFilled(notional, utcNow);
-                
-                // Discord notification
-                if (_discordNotifier != null)
-                {
-                    _log.Information("[DISCORD] Sending BUY notification for {Symbol} @ {Price} qty={Qty} exchange={Ex}", 
-                        req.Symbol.Ticker, fillPx, req.Quantity, req.Symbol.Exchange ?? "SMART");
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await _discordNotifier.NotifyBuyAsync(
-                                symbol: req.Symbol.Ticker,
-                                quantity: req.Quantity,
-                                price: fillPx,
-                                notional: notional,
-                                exchange: req.Symbol.Exchange ?? "SMART",
-                                isPaper: isPaper,
-                                ct: CancellationToken.None);
-                            _log.Information("[DISCORD] BUY notification sent successfully for {Symbol}", req.Symbol.Ticker);
-                        }
-                        catch (Exception ex)
-                        {
-                            _log.Warning(ex, "[DISCORD] Failed to send BUY notification for {Symbol}", req.Symbol.Ticker);
-                        }
-                    });
-                }
-                else
-                {
-                    _log.Debug("[DISCORD] Discord notifier is NULL - skipping BUY notification for {Symbol}", req.Symbol.Ticker);
-                }
+                TrackDiscordFillNotification(req, notional, realizedPnl, fillPx, isPaper, exitReason: null);
 
                 // posle BUY fill-a: ako smo upravo otvorili novu poziciju (pre je bilo 0, sada > 0)
                 var newPos = _positionBook.Get(req.Symbol.Ticker);
@@ -1566,37 +1545,8 @@ namespace Denis.TradingEngine.App.Trading
                         exitReasonStr = "Position Closed";
                     }
                 }
-                
-                if (_discordNotifier != null)
-                {
-                    _log.Information("[DISCORD] Sending SELL notification for {Symbol} @ {Price} qty={Qty} pnl={Pnl:F2} exchange={Ex}", 
-                        req.Symbol.Ticker, fillPx, req.Quantity, realizedPnl, req.Symbol.Exchange ?? "SMART");
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await _discordNotifier.NotifySellAsync(
-                                symbol: req.Symbol.Ticker,
-                                quantity: req.Quantity,
-                                price: fillPx,
-                                notional: notional,
-                                realizedPnl: realizedPnl,
-                                exchange: req.Symbol.Exchange ?? "SMART",
-                                isPaper: isPaper,
-                                exitReason: exitReasonStr,
-                                ct: CancellationToken.None);
-                            _log.Information("[DISCORD] SELL notification sent successfully for {Symbol}", req.Symbol.Ticker);
-                        }
-                        catch (Exception ex)
-                        {
-                            _log.Warning(ex, "[DISCORD] Failed to send SELL notification for {Symbol}", req.Symbol.Ticker);
-                        }
-                    });
-                }
-                else
-                {
-                    _log.Debug("[DISCORD] Discord notifier is NULL - skipping SELL notification for {Symbol}", req.Symbol.Ticker);
-                }
+
+                TrackDiscordFillNotification(req, notional, realizedPnl, fillPx, isPaper, exitReasonStr);
 
                 // SWING DB: zatvori samo kad je pozicija stvarno zatvorena (i bila je otvorena pre toga)
                 if (!isPaper &&
@@ -2013,7 +1963,11 @@ namespace Denis.TradingEngine.App.Trading
             // === REAL MODE ===
             // Ako postoji _orderService, znači da smo povezani na pravog brokera.
             // U tom slučaju exit-e upravlja OCO (TP/SL) i NE SME da šaljemo dodatne exit naloge.
-            if (_orderService != null) return;
+            if (_orderService != null)
+            {
+                TryEvaluateRealProtectTradeOnQuote(q);
+                return;
+            }
 
             try
             {
@@ -2169,6 +2123,9 @@ namespace Denis.TradingEngine.App.Trading
                     if (refPx > rt.BestPrice)
                         rt.BestPrice = refPx;
                 }
+
+                if (TryHandleProtectTradeOnQuote(sym, pos.Quantity, entry, refPx, rt, now, isRealMode: false))
+                    return;
 
                 // -------- 1) TIME EXIT (regime/symbol aware) --------
                 var holding = now - rt.EntryUtc;
@@ -2478,6 +2435,153 @@ namespace Denis.TradingEngine.App.Trading
                 _log.Error(ex, "[ERROR] exit-eval failed");
             }
         }
+
+        private void TryEvaluateRealProtectTradeOnQuote(MarketQuote q)
+        {
+            if (!_settings.ProtectTrade.Enabled)
+                return;
+
+            if (_orderService is null)
+                return;
+
+            if (_swingConfig is null || _swingConfig.Mode != SwingMode.Swing || !_swingConfig.AutoExitReal)
+                return;
+
+            try
+            {
+                if (q?.Symbol is null || (!q.Bid.HasValue && !q.Last.HasValue))
+                    return;
+
+                var sym = q.Symbol.Ticker;
+                var pos = _positionBook.Get(sym);
+                if (pos is null || pos.Quantity <= 0m)
+                    return;
+
+                var entry = pos.AveragePrice;
+                if (entry <= 0m)
+                    return;
+
+                if (IsExternalPosition(sym))
+                    return;
+
+                var refPx = q.Bid ?? q.Last ?? 0m;
+                if (refPx <= 0m)
+                    return;
+
+                lock (_sync)
+                {
+                    if (_exitPending.Contains(sym))
+                        return;
+                }
+
+                var now = DateTime.UtcNow;
+
+                PositionRuntimeState? rt;
+                lock (_sync)
+                {
+                    _posRuntime.TryGetValue(sym, out rt);
+
+                    if (rt is null)
+                    {
+                        rt = new PositionRuntimeState
+                        {
+                            EntryUtc = now,
+                            EntryPrice = entry,
+                            BestPrice = refPx,
+                            IsExternal = false
+                        };
+                        _posRuntime[sym] = rt;
+                    }
+                    else if (refPx > rt.BestPrice)
+                    {
+                        rt.BestPrice = refPx;
+                    }
+                }
+
+                TryHandleProtectTradeOnQuote(sym, pos.Quantity, entry, refPx, rt, now, isRealMode: true);
+            }
+            catch (Exception ex)
+            {
+                _log.Warning(ex, "[PROTECT-TRADE-REAL] evaluation failed");
+            }
+        }
+
+        private bool TryHandleProtectTradeOnQuote(
+            string symbol,
+            decimal quantity,
+            decimal entry,
+            decimal refPx,
+            PositionRuntimeState rt,
+            DateTime nowUtc,
+            bool isRealMode)
+        {
+            if (!_settings.ProtectTrade.Enabled)
+                return false;
+
+            if (quantity <= 0m || entry <= 0m || refPx <= 0m)
+                return false;
+
+            var armProfitPct = _settings.ProtectTrade.ArmProfitPct;
+            if (armProfitPct <= 0m)
+                return false;
+
+            var armPrice = entry * (1m + armProfitPct);
+            var protectStop = entry * (1m + _settings.ProtectTrade.StopOffsetPct);
+
+            if (!rt.ProtectTradeArmed && rt.BestPrice >= armPrice)
+            {
+                rt.ProtectTradeArmed = true;
+                rt.ProtectTradeArmedUtc = nowUtc;
+                rt.ProtectTradeStop = protectStop;
+
+                _log.Information(
+                    "[PROTECT-TRADE-ARMED] {Sym} mode={Mode} entry={Entry:F2} best={Best:F2} trigger={Trigger:F2} stop={Stop:F2}",
+                    symbol,
+                    isRealMode ? "REAL" : "PAPER",
+                    entry,
+                    rt.BestPrice,
+                    armPrice,
+                    protectStop);
+            }
+
+            if (!rt.ProtectTradeArmed || !rt.ProtectTradeStop.HasValue)
+                return false;
+
+            if (refPx > rt.ProtectTradeStop.Value)
+                return false;
+
+            var reason =
+                $"PROTECT-TRADE now={refPx:F2} entry={entry:F2} best={rt.BestPrice:F2} trigger={armPrice:F2} stop={rt.ProtectTradeStop.Value:F2}";
+
+            if (isRealMode)
+            {
+                _log.Warning(
+                    "[PROTECT-TRADE-FIRE] {Sym} REAL qty={Qty:F4} now={Now:F2} stop={Stop:F2} best={Best:F2}",
+                    symbol,
+                    quantity,
+                    refPx,
+                    rt.ProtectTradeStop.Value,
+                    rt.BestPrice);
+
+                CancelAllExitsForSymbol(symbol, nowUtc, reason);
+                SendExit(symbol, quantity, refPx, reason, "exit-swing-protect");
+            }
+            else
+            {
+                _log.Warning(
+                    "[PROTECT-TRADE-FIRE] {Sym} PAPER qty={Qty:F4} now={Now:F2} stop={Stop:F2} best={Best:F2}",
+                    symbol,
+                    quantity,
+                    refPx,
+                    rt.ProtectTradeStop.Value,
+                    rt.BestPrice);
+
+                SendExit(symbol, quantity, refPx, reason, "exit-swing-protect");
+            }
+
+            return true;
+        }
+
         // =========================
         //  HEARTBEAT
         // =========================
@@ -3125,6 +3229,7 @@ namespace Denis.TradingEngine.App.Trading
                         RollbackDayGuardCountIfUnfilledEntry(removed, now, "canceled");
                         ClearCumFilled(removed.CorrelationId);
                         ClearCancelRequested(removed.CorrelationId);
+                        FlushDiscordFillNotification(removed.CorrelationId, terminalStatus: "canceled");
 
                         _log.Information("[ORD-UPD] CANCELED brokerId={Bid} corr={Corr}",
                             brokerId, removed.CorrelationId);
@@ -3188,6 +3293,7 @@ namespace Denis.TradingEngine.App.Trading
                         RollbackDayGuardCountIfUnfilledEntry(removed, now, "rejected");
                         ClearCumFilled(removed.CorrelationId);
                         ClearCancelRequested(removed.CorrelationId);
+                        FlushDiscordFillNotification(removed.CorrelationId, terminalStatus: "rejected");
 
                         if (_orderRepo != null)
                         {
@@ -3328,6 +3434,7 @@ namespace Denis.TradingEngine.App.Trading
 
                             ClearCancelRequested(removed.CorrelationId);
                             ClearCumFilled(removed.CorrelationId);
+                            FlushDiscordFillNotification(removed.CorrelationId, terminalStatus: "filled");
                         }
 
                         MarkTerminal(brokerId, now);
@@ -3451,6 +3558,204 @@ namespace Denis.TradingEngine.App.Trading
                 _log.Information("[ROLLBACK] {Sym} corr={Corr} reserved={Res:F2} released", req.Symbol.Ticker, req.CorrelationId, po.ReservedUsd);
             }
         }
+
+        private void TrackDiscordFillNotification(
+            OrderRequest req,
+            decimal notional,
+            decimal realizedPnl,
+            decimal fillPx,
+            bool isPaper,
+            string? exitReason)
+        {
+            if (_discordNotifier is null)
+            {
+                _log.Debug("[DISCORD] Discord notifier is NULL - skipping fill notification for {Symbol}", req.Symbol.Ticker);
+                return;
+            }
+
+            if (isPaper)
+            {
+                SendDiscordFillNotification(
+                    side: req.Side,
+                    symbol: req.Symbol.Ticker,
+                    quantity: req.Quantity,
+                    averagePrice: fillPx,
+                    notional: notional,
+                    realizedPnl: realizedPnl,
+                    exchange: req.Symbol.Exchange ?? "SMART",
+                    isPaper: true,
+                    exitReason: exitReason,
+                    correlationId: req.CorrelationId,
+                    sliceCount: 1);
+                return;
+            }
+
+            var corr = req.CorrelationId ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(corr))
+            {
+                SendDiscordFillNotification(
+                    side: req.Side,
+                    symbol: req.Symbol.Ticker,
+                    quantity: req.Quantity,
+                    averagePrice: fillPx,
+                    notional: notional,
+                    realizedPnl: realizedPnl,
+                    exchange: req.Symbol.Exchange ?? "SMART",
+                    isPaper: false,
+                    exitReason: exitReason,
+                    correlationId: null,
+                    sliceCount: 1);
+                return;
+            }
+
+            lock (_sync)
+            {
+                if (!_discordFillByCorrId.TryGetValue(corr, out var aggregate))
+                {
+                    aggregate = new AggregatedDiscordFillNotification
+                    {
+                        Symbol = req.Symbol.Ticker,
+                        Side = req.Side,
+                        Exchange = req.Symbol.Exchange ?? "SMART",
+                        IsPaper = false
+                    };
+                    _discordFillByCorrId[corr] = aggregate;
+                }
+
+                aggregate.TotalQuantity += req.Quantity;
+                aggregate.TotalNotional += notional;
+                aggregate.TotalRealizedPnl += realizedPnl;
+                aggregate.SliceCount++;
+
+                if (!string.IsNullOrWhiteSpace(exitReason))
+                    aggregate.ExitReason = exitReason;
+            }
+
+            _log.Information(
+                "[DISCORD] Aggregated fill slice corr={Corr} sym={Sym} side={Side} qty={Qty:F6} px={Px:F4}",
+                corr, req.Symbol.Ticker, req.Side, req.Quantity, fillPx);
+        }
+
+        private void FlushDiscordFillNotification(string correlationId, string terminalStatus)
+        {
+            if (_discordNotifier is null || string.IsNullOrWhiteSpace(correlationId))
+                return;
+
+            AggregatedDiscordFillNotification? aggregate = null;
+            lock (_sync)
+            {
+                if (_discordFillByCorrId.TryGetValue(correlationId, out var found))
+                {
+                    aggregate = found;
+                    _discordFillByCorrId.Remove(correlationId);
+                }
+            }
+
+            if (aggregate is null || aggregate.TotalQuantity <= 0m)
+                return;
+
+            var averagePrice = aggregate.TotalQuantity > 0m
+                ? aggregate.TotalNotional / aggregate.TotalQuantity
+                : 0m;
+
+            _log.Information(
+                "[DISCORD] Flushing aggregated notification corr={Corr} side={Side} sym={Sym} qty={Qty:F6} avgPx={Px:F4} slices={Slices} terminal={Terminal}",
+                correlationId,
+                aggregate.Side,
+                aggregate.Symbol,
+                aggregate.TotalQuantity,
+                averagePrice,
+                aggregate.SliceCount,
+                terminalStatus);
+
+            SendDiscordFillNotification(
+                side: aggregate.Side,
+                symbol: aggregate.Symbol,
+                quantity: aggregate.TotalQuantity,
+                averagePrice: averagePrice,
+                notional: aggregate.TotalNotional,
+                realizedPnl: aggregate.TotalRealizedPnl,
+                exchange: aggregate.Exchange,
+                isPaper: aggregate.IsPaper,
+                exitReason: aggregate.ExitReason,
+                correlationId: correlationId,
+                sliceCount: aggregate.SliceCount);
+        }
+
+        private void SendDiscordFillNotification(
+            OrderSide side,
+            string symbol,
+            decimal quantity,
+            decimal averagePrice,
+            decimal notional,
+            decimal realizedPnl,
+            string exchange,
+            bool isPaper,
+            string? exitReason,
+            string? correlationId,
+            int sliceCount)
+        {
+            if (_discordNotifier is null)
+                return;
+
+            var corrForLog = correlationId ?? "n/a";
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    if (side == OrderSide.Buy)
+                    {
+                        _log.Information(
+                            "[DISCORD] Sending BUY notification for {Symbol} avgPx={Price:F4} qty={Qty:F6} exchange={Ex} corr={Corr} slices={Slices}",
+                            symbol, averagePrice, quantity, exchange, corrForLog, sliceCount);
+                        await _discordNotifier.NotifyBuyAsync(
+                            symbol: symbol,
+                            quantity: quantity,
+                            price: averagePrice,
+                            notional: notional,
+                            exchange: exchange,
+                            isPaper: isPaper,
+                            ct: CancellationToken.None);
+                    }
+                    else
+                    {
+                        _log.Information(
+                            "[DISCORD] Sending SELL notification for {Symbol} avgPx={Price:F4} qty={Qty:F6} pnl={Pnl:F2} exchange={Ex} corr={Corr} slices={Slices}",
+                            symbol, averagePrice, quantity, realizedPnl, exchange, corrForLog, sliceCount);
+                        await _discordNotifier.NotifySellAsync(
+                            symbol: symbol,
+                            quantity: quantity,
+                            price: averagePrice,
+                            notional: notional,
+                            realizedPnl: realizedPnl,
+                            exchange: exchange,
+                            isPaper: isPaper,
+                            exitReason: exitReason,
+                            ct: CancellationToken.None);
+                    }
+
+                    _log.Information("[DISCORD] {Side} notification sent successfully for {Symbol} corr={Corr}", side, symbol, corrForLog);
+                }
+                catch (Exception ex)
+                {
+                    _log.Warning(ex, "[DISCORD] Failed to send {Side} notification for {Symbol} corr={Corr}", side, symbol, corrForLog);
+                }
+            });
+        }
+
+        private sealed class AggregatedDiscordFillNotification
+        {
+            public string Symbol { get; init; } = string.Empty;
+            public OrderSide Side { get; init; }
+            public string Exchange { get; init; } = "SMART";
+            public bool IsPaper { get; init; }
+            public decimal TotalQuantity { get; set; }
+            public decimal TotalNotional { get; set; }
+            public decimal TotalRealizedPnl { get; set; }
+            public int SliceCount { get; set; }
+            public string? ExitReason { get; set; }
+        }
+
         private void FireAndForgetCancel(string brokerOrderId, string symbol)
         {
             if (_orderService is null)
