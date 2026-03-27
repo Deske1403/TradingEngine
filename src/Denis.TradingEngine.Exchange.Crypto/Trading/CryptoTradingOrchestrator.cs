@@ -907,6 +907,7 @@ public sealed class CryptoTradingOrchestrator : IDisposable
     private void OnTradeSignal(TradeSignal signal)
     {
         var now = DateTime.UtcNow;
+        var signalUtc = signal.TimestampUtc == default ? now : signal.TimestampUtc;
         var strategyName = _strategy.GetType().Name;
 
         void MarkBlocked(string shortReason)
@@ -914,7 +915,7 @@ public sealed class CryptoTradingOrchestrator : IDisposable
             try
             {
                 StrategyMetrics.Instance.SignalBlocked(strategyName, signal.Symbol.Ticker, shortReason);
-                StrategyMetrics.Instance.SignalBlockedByPhase(strategyName, signal.Symbol.Ticker, shortReason, now);
+                StrategyMetrics.Instance.SignalBlockedByPhase(strategyName, signal.Symbol.Ticker, shortReason, signalUtc);
             }
             catch { }
         }
@@ -933,7 +934,7 @@ public sealed class CryptoTradingOrchestrator : IDisposable
             try
             {
                 await _signalRepo.InsertAsync(
-                    utc: now,
+                    utc: signalUtc,
                     symbol: signal.Symbol.Ticker,
                     side: signal.Side.ToString(),
                     suggestedPrice: signal.SuggestedLimitPrice,

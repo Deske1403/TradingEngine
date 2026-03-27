@@ -456,6 +456,7 @@ namespace Denis.TradingEngine.App.Trading
         private void OnTradeSignal(TradeSignal signal)
         {
             var now = DateTime.UtcNow;
+            var signalUtc = signal.TimestampUtc == default ? now : signal.TimestampUtc;
             // ime strategije (isti string koji pišemo u SignalRepo)
             var strategyName = _strategy.GetType().Name;
             void MarkBlocked(string shortReason)
@@ -473,7 +474,7 @@ namespace Denis.TradingEngine.App.Trading
                         strategyName,
                         signal.Symbol.Ticker,
                         shortReason,
-                        now
+                        signalUtc
                     );
                 }
                 catch
@@ -482,9 +483,9 @@ namespace Denis.TradingEngine.App.Trading
             }
 
             var runEnv = _orderService is null ? "Paper" : "Real";
-            var insideUsRthNow = TradingSessionGuard.IsInsideUsRth(now);
+            var insideUsRthNow = TradingSessionGuard.IsInsideUsRth(signalUtc);
             var rthWindow = HasConfiguredTradingWindow()
-                ? (insideUsRthNow && IsInsideConfiguredTradingWindow(now, out _) ? "inside" : "outside")
+                ? (insideUsRthNow && IsInsideConfiguredTradingWindow(signalUtc, out _) ? "inside" : "outside")
                 : (insideUsRthNow ? "inside" : "outside");
 
             async Task LogSignalAsync(
@@ -499,7 +500,7 @@ namespace Denis.TradingEngine.App.Trading
                 try
                 {
                     await _signalRepo.InsertAsync(
-                        utc: now,
+                        utc: signalUtc,
                         symbol: signal.Symbol.Ticker,
                         side: signal.Side.ToString(),
                         suggestedPrice: signal.SuggestedLimitPrice,
