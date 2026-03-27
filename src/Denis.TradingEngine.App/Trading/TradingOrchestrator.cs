@@ -52,9 +52,11 @@ namespace Denis.TradingEngine.App.Trading
         private readonly object _sync = new();
         private readonly Dictionary<string, DateTime> _lastExitUtc = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _exitPending = new(StringComparer.OrdinalIgnoreCase);
-        // TP/SL config (fixed)
-        private readonly decimal _tpFraction = 0.014m;
-        private readonly decimal _slFraction = 0.01m;
+        // TP/SL config
+        private readonly decimal _tpFraction;
+        private readonly decimal _slFraction;
+        private readonly decimal _tpAtrMultiple;
+        private readonly decimal _slAtrMultiple;
         // pozadinsko osvežavanje keša
         private readonly CancellationTokenSource _cashRefreshCts = new();
         private Core.Accounts.CashState _lastCash = new(0m, 0m, 0m);
@@ -91,9 +93,6 @@ namespace Denis.TradingEngine.App.Trading
         private static readonly TimeSpan MaxQuoteAgeRth      = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan MaxQuoteAgeExtended = TimeSpan.FromSeconds(30);
         private readonly Dictionary<string, AtrState> _atr = new();
-        // ATR-based TP/SL multipliers
-        private const decimal TpAtrMultiple = 2.5m;
-        private const decimal SlAtrMultiple = 1.5m;
         // trailing preko ATR-a
         private const decimal TrailActivateAtrMultiple = 1.0m; // aktiviraj trailing nakon +1 ATR
         private const decimal TrailDistanceAtrMultiple = 0.7m; // stop ~0.7 ATR ispod max
@@ -302,6 +301,10 @@ namespace Denis.TradingEngine.App.Trading
             _tradeEndLocalNy = settings?.TradeEndLocalNy;
             _useEstimatedCommissionOnReal = settings?.UseEstimatedCommissionOnReal ?? true;
             _settings = settings ?? new TradingSettings();
+            _tpFraction = _settings.Exit.TpFraction > 0m ? _settings.Exit.TpFraction : 0.014m;
+            _slFraction = _settings.Exit.SlFraction > 0m ? _settings.Exit.SlFraction : 0.01m;
+            _tpAtrMultiple = _settings.Exit.TpAtrMultiple > 0m ? _settings.Exit.TpAtrMultiple : 2.5m;
+            _slAtrMultiple = _settings.Exit.SlAtrMultiple > 0m ? _settings.Exit.SlAtrMultiple : 1.5m;
             _tradingEnabled = settings?.Enabled ?? true;
 
             _swingConfig = swingConfig ?? new SwingTradingConfig();
@@ -319,6 +322,12 @@ namespace Denis.TradingEngine.App.Trading
                 _settings.ProtectTrade.Enabled,
                 _settings.ProtectTrade.ArmProfitPct,
                 _settings.ProtectTrade.StopOffsetPct);
+            _log.Information(
+                "[EXIT-CONFIG] TpAtrMultiple={TpAtr:F2} SlAtrMultiple={SlAtr:F2} TpFraction={TpPct:P2} SlFraction={SlPct:P2}",
+                _tpAtrMultiple,
+                _slAtrMultiple,
+                _tpFraction,
+                _slFraction);
 
 
 
@@ -815,7 +824,7 @@ namespace Denis.TradingEngine.App.Trading
 
                 if (atrOpt.HasValue && riskFraction > 0m)
                 {
-                    var slAtrMultiple = SlAtrMultiple; // koliko ATR-a uzimamo kao "risk distance" za SL
+                    var slAtrMultiple = _slAtrMultiple; // koliko ATR-a uzimamo kao "risk distance" za SL
                     var atr = atrOpt.Value;
 
                     // approx equity
@@ -2243,8 +2252,8 @@ namespace Denis.TradingEngine.App.Trading
                     var atr = atrOpt.Value;
 
                     // ATR distance
-                    var atrTpDist = TpAtrMultiple * atr;
-                    var atrSlDist = SlAtrMultiple * atr;
+                    var atrTpDist = _tpAtrMultiple * atr;
+                    var atrSlDist = _slAtrMultiple * atr;
 
                     // Minimalna procentualna distanca (fallback)
                     var pctTpDist = entry * _tpFraction;   // npr. 2%
@@ -5065,8 +5074,8 @@ namespace Denis.TradingEngine.App.Trading
             var pctTpDist = entryPx * _tpFraction;
             var pctSlDist = entryPx * _slFraction;
 
-            var atrTpDist = atrOpt.HasValue ? TpAtrMultiple * atrOpt.Value : 0m;
-            var atrSlDist = atrOpt.HasValue ? SlAtrMultiple * atrOpt.Value : 0m;
+            var atrTpDist = atrOpt.HasValue ? _tpAtrMultiple * atrOpt.Value : 0m;
+            var atrSlDist = atrOpt.HasValue ? _slAtrMultiple * atrOpt.Value : 0m;
 
             var tpDist = Math.Max(atrTpDist, pctTpDist);
             var slDist = Math.Max(atrSlDist, pctSlDist);

@@ -98,6 +98,12 @@ namespace Denis.TradingEngine.App.Trading
         public bool EnableStopLimitOutsideRth { get; init; } = false;
 
         /// <summary>
+        /// Exit tuning parametri (TP/SL preko ATR i procentualnog floor-a).
+        /// Ako nisu navedeni u configu, koriste se legacy default vrednosti.
+        /// </summary>
+        public ExitSettings Exit { get; init; } = new();
+
+        /// <summary>
         /// Opciona zaštita koja, kada trade pokaže mali profit,
         /// armira "protect stop" oko break-even nivoa.
         /// Ako je Enabled=false, engine radi identično kao do sada.
@@ -125,6 +131,14 @@ namespace Denis.TradingEngine.App.Trading
         /// Primer: 0.0000 = čist break-even, 0.0005 = +0.05%.
         /// </summary>
         public decimal StopOffsetPct { get; init; } = 0.0000m;
+    }
+
+    public sealed class ExitSettings
+    {
+        public decimal TpAtrMultiple { get; init; } = 2.5m;
+        public decimal SlAtrMultiple { get; init; } = 1.5m;
+        public decimal TpFraction { get; init; } = 0.014m;
+        public decimal SlFraction { get; init; } = 0.01m;
     }
 
     /// <summary>
