@@ -1342,6 +1342,28 @@ Why stage 2 exists:
 - without it, an offer can be repriced down to a `Motor` target and then, after `EXECUTED`, the next fresh placement can jump back to a higher `SmartRegime` rate
 - stage 2 removes that policy split and keeps post-fill re-entry aligned with the same `Motor` logic
 
+## Managed-offer fallback policy
+
+Live runtime now also supports a separate managed-offer behavior gate through `ManagedOfferPolicyMode`.
+
+Supported modes:
+
+- `Immediate`
+- `KeepThenMotorFallback`
+
+`KeepThenMotorFallback` behavior:
+
+- if the current managed-offer target already says `replace`, runtime still replaces immediately
+- otherwise, runtime can keep a live managed offer for the configured minimum replace age
+- after that wait window, if the offer is still materially above the `Motor` fallback rate, runtime can reprice it down toward `Motor`
+- this gives live runtime a first explicit `keep -> wait -> lower -> replace` policy for stale managed offers
+
+Practical meaning:
+
+- fresh placements still follow `LivePlacementPolicyMode`
+- managed active offers no longer have to stay forever on a high live target just because the immediate live placement mode still says `HOT`
+- this is the next narrow live promotion toward execution-aware pricing without promoting the full shadow action model into live mutation
+
 ## Per-symbol funding profiles
 
 Funding config now also supports symbol-specific overrides so `fUSD` and `fUST` no longer have to share one blunt global runtime shape.

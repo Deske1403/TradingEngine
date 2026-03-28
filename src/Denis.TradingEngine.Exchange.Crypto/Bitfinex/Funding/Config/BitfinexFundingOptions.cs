@@ -42,6 +42,8 @@ public sealed class BitfinexFundingOptions
 
     public string ManagedOfferTargetMode { get; set; } = "Live";
 
+    public string ManagedOfferPolicyMode { get; set; } = "Immediate";
+
     public bool LiveUseFrrAsFloor { get; set; } = true;
 
     public decimal LiveLowRegimeRateMultiplier { get; set; } = 1.00m;

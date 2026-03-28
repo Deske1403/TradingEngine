@@ -514,41 +514,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 );
             }
 
-            var (managedTargetRequest, managedTargetSummary) = ResolveManagedOfferTarget(candidate);
-            if (!ShouldReplaceOffer(activeOffer, managedTargetRequest, out var replaceReason))
-            {
-                return new FundingDecision(
-                    Action: "skip_active_offer_ok",
-                    IsDryRun: _options.DryRun,
-                    IsActionable: false,
-                    Symbol: candidate.Symbol,
-                    Currency: candidate.Currency,
-                    WalletType: candidate.WalletType,
-                    AvailableBalance: candidate.AvailableBalance,
-                    LendableBalance: candidate.LendableBalance,
-                    ProposedAmount: managedTargetRequest.Amount,
-                    ProposedRate: managedTargetRequest.Rate,
-                    ProposedPeriodDays: managedTargetRequest.PeriodDays,
-                    Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary}",
-                    TimestampUtc: nowUtc
-                );
-            }
-
-            return new FundingDecision(
-                Action: _options.DryRun ? "would_replace_offer" : "replace_offer",
-                IsDryRun: _options.DryRun,
-                IsActionable: true,
-                Symbol: candidate.Symbol,
-                Currency: candidate.Currency,
-                WalletType: candidate.WalletType,
-                AvailableBalance: candidate.AvailableBalance,
-                LendableBalance: candidate.LendableBalance,
-                ProposedAmount: managedTargetRequest.Amount,
-                ProposedRate: managedTargetRequest.Rate,
-                ProposedPeriodDays: managedTargetRequest.PeriodDays,
-                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary}",
-                TimestampUtc: nowUtc
-            );
+            return BuildManagedOfferDecision(candidate, activeOffer, nowUtc);
         }
 
         return BuildFreshPlacementDecision(candidate, nowUtc);
@@ -669,6 +635,107 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             PlaceImmediately: placeImmediately);
     }
 
+    private FundingDecision BuildManagedOfferDecision(
+        FundingPlacementCandidate candidate,
+        FundingOfferInfo activeOffer,
+        DateTime nowUtc)
+    {
+        var (managedTargetRequest, managedTargetSummary) = ResolveManagedOfferTarget(candidate);
+        if (ShouldReplaceOffer(activeOffer, managedTargetRequest, out var replaceReason))
+        {
+            return new FundingDecision(
+                Action: _options.DryRun ? "would_replace_offer" : "replace_offer",
+                IsDryRun: _options.DryRun,
+                IsActionable: true,
+                Symbol: candidate.Symbol,
+                Currency: candidate.Currency,
+                WalletType: candidate.WalletType,
+                AvailableBalance: candidate.AvailableBalance,
+                LendableBalance: candidate.LendableBalance,
+                ProposedAmount: managedTargetRequest.Amount,
+                ProposedRate: managedTargetRequest.Rate,
+                ProposedPeriodDays: managedTargetRequest.PeriodDays,
+                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary}",
+                TimestampUtc: nowUtc
+            );
+        }
+
+        var fallbackDecision = TryBuildManagedOfferFallbackDecision(candidate, activeOffer, managedTargetSummary, nowUtc);
+        if (fallbackDecision is not null)
+            return fallbackDecision;
+
+        return new FundingDecision(
+            Action: "skip_active_offer_ok",
+            IsDryRun: _options.DryRun,
+            IsActionable: false,
+            Symbol: candidate.Symbol,
+            Currency: candidate.Currency,
+            WalletType: candidate.WalletType,
+            AvailableBalance: candidate.AvailableBalance,
+            LendableBalance: candidate.LendableBalance,
+            ProposedAmount: managedTargetRequest.Amount,
+            ProposedRate: managedTargetRequest.Rate,
+            ProposedPeriodDays: managedTargetRequest.PeriodDays,
+            Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary}",
+            TimestampUtc: nowUtc
+        );
+    }
+
+    private FundingDecision? TryBuildManagedOfferFallbackDecision(
+        FundingPlacementCandidate candidate,
+        FundingOfferInfo activeOffer,
+        string managedTargetSummary,
+        DateTime nowUtc)
+    {
+        var normalizedMode = NormalizeManagedOfferPolicyMode(candidate.SymbolSettings.ManagedOfferPolicyMode);
+        if (normalizedMode != "KEEPTHENMOTORFALLBACK")
+            return null;
+
+        var (fallbackRequest, fallbackSummary) = ResolveManagedOfferFallbackTarget(candidate);
+        var rateDelta = activeOffer.Rate - fallbackRequest.Rate;
+        if (rateDelta < _options.ReplaceMinRateDelta)
+            return null;
+
+        var (age, minAge) = GetManagedOfferAgeWindow(activeOffer);
+        if (age < minAge)
+        {
+            return new FundingDecision(
+                Action: "wait_active_offer_fallback",
+                IsDryRun: _options.DryRun,
+                IsActionable: false,
+                Symbol: candidate.Symbol,
+                Currency: candidate.Currency,
+                WalletType: candidate.WalletType,
+                AvailableBalance: candidate.AvailableBalance,
+                LendableBalance: candidate.LendableBalance,
+                ProposedAmount: fallbackRequest.Amount,
+                ProposedRate: fallbackRequest.Rate,
+                ProposedPeriodDays: fallbackRequest.PeriodDays,
+                Reason: $"Managed offer is still inside fallback wait window (offerId={activeOffer.OfferId}). age={age.TotalSeconds:F0}s threshold={minAge.TotalSeconds:F0}s {managedTargetSummary} {fallbackSummary}",
+                TimestampUtc: nowUtc
+            );
+        }
+
+        if (!ShouldReplaceOffer(activeOffer, fallbackRequest, out var replaceReason))
+            return null;
+
+        return new FundingDecision(
+            Action: _options.DryRun ? "would_replace_offer" : "replace_offer",
+            IsDryRun: _options.DryRun,
+            IsActionable: true,
+            Symbol: candidate.Symbol,
+            Currency: candidate.Currency,
+            WalletType: candidate.WalletType,
+            AvailableBalance: candidate.AvailableBalance,
+            LendableBalance: candidate.LendableBalance,
+            ProposedAmount: fallbackRequest.Amount,
+            ProposedRate: fallbackRequest.Rate,
+            ProposedPeriodDays: fallbackRequest.PeriodDays,
+            Reason: $"Managed offer should fall back to Motor repricing (offerId={activeOffer.OfferId}). {replaceReason} {managedTargetSummary} {fallbackSummary}",
+            TimestampUtc: nowUtc
+        );
+    }
+
     private FundingLivePlacementWaitState GetOrCreateLivePlacementWaitState(
         FundingPlacementCandidate candidate,
         FundingLivePlacementPolicy policy,
@@ -753,9 +820,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
     private bool ShouldReplaceOffer(FundingOfferInfo activeOffer, FundingOfferRequest targetRequest, out string reason)
     {
-        var referenceUtc = activeOffer.UpdatedUtc ?? activeOffer.CreatedUtc ?? DateTime.UtcNow;
-        var age = DateTime.UtcNow - referenceUtc;
-        var minAge = TimeSpan.FromSeconds(Math.Max(0, _options.MinManagedOfferAgeSecondsBeforeReplace));
+        var (age, minAge) = GetManagedOfferAgeWindow(activeOffer);
         if (age < minAge)
         {
             reason = $"Offer age {age.TotalSeconds:F0}s is below replace threshold {minAge.TotalSeconds:F0}s.";
@@ -792,6 +857,14 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
         reason = "Offer parameters are still aligned with target thresholds.";
         return false;
+    }
+
+    private (TimeSpan Age, TimeSpan MinAge) GetManagedOfferAgeWindow(FundingOfferInfo activeOffer)
+    {
+        var referenceUtc = activeOffer.UpdatedUtc ?? activeOffer.CreatedUtc ?? DateTime.UtcNow;
+        var age = DateTime.UtcNow - referenceUtc;
+        var minAge = TimeSpan.FromSeconds(Math.Max(0, _options.MinManagedOfferAgeSecondsBeforeReplace));
+        return (age, minAge);
     }
 
     private async Task<FundingOfferActionResult?> ExecuteDecisionAsync(
@@ -878,7 +951,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ForgetManagedOffer(offer.OfferId);
                 await RefreshActiveOffersForSymbolAsync(offer.Symbol, ct).ConfigureAwait(false);
 
-                var (targetRequest, targetSummary) = ResolveManagedOfferTarget(candidate);
+                var targetRequest = BuildDecisionRequest(candidate, decision);
                 var submitResult = await _api.SubmitOfferAsync(targetRequest, ct).ConfigureAwait(false);
                 if (submitResult.Success && !string.IsNullOrWhiteSpace(submitResult.OfferId))
                 {
@@ -895,8 +968,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     OfferId: submitResult.Success ? submitResult.OfferId : offer.OfferId,
                     Status: submitResult.Success ? submitResult.Status : $"CANCELLED_{submitResult.Status}",
                     Message: submitResult.Success
-                        ? $"Replaced active offer {offer.OfferId} with {submitResult.OfferId}. {submitResult.Message} {targetSummary}"
-                        : $"Cancelled active offer {offer.OfferId}, but replacement submit failed. {submitResult.Message} {targetSummary}",
+                        ? $"Replaced active offer {offer.OfferId} with {submitResult.OfferId}. {submitResult.Message} {decision.Reason}"
+                        : $"Cancelled active offer {offer.OfferId}, but replacement submit failed. {submitResult.Message} {decision.Reason}",
                     Offer: submitResult.Offer,
                     TimestampUtc: DateTime.UtcNow
                 );
@@ -3351,6 +3424,22 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             $"{summary} amount={candidate.Request.Amount:F2} period={candidate.Request.PeriodDays}");
     }
 
+    private (FundingOfferRequest Request, string Summary) ResolveManagedOfferFallbackTarget(FundingPlacementCandidate candidate)
+    {
+        var askRate = candidate.Ticker.AskRate > 0m ? candidate.Ticker.AskRate : 0m;
+        var bidRate = candidate.Ticker.BidRate > 0m ? candidate.Ticker.BidRate : 0m;
+        var marketRate = askRate > 0m
+            ? askRate
+            : bidRate > 0m
+                ? bidRate
+                : candidate.SymbolSettings.MinDailyRate;
+
+        var fallbackRate = SelectShadowRate(marketRate, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
+        return (
+            candidate.Request with { Rate = fallbackRate },
+            $"managed_policy=KeepThenMotorFallback fallback={fallbackRate:E6} anchor={marketRate:E6} motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6}");
+    }
+
     private void LogShadowActions(IReadOnlyList<FundingShadowAction> shadowActions)
     {
         if (!_options.LayeredShadowEnabled || shadowActions.Count == 0)
@@ -3658,6 +3747,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ToUpperInvariant();
     }
 
+    private static string NormalizeManagedOfferPolicyMode(string? policyMode)
+    {
+        if (string.IsNullOrWhiteSpace(policyMode))
+            return "IMMEDIATE";
+
+        return policyMode
+            .Trim()
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .ToUpperInvariant();
+    }
+
     private static string FormatRate(decimal rate)
     {
         return rate > 0m ? rate.ToString("E6") : "n/a";
@@ -3751,6 +3853,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             LiveRateMode: string.IsNullOrWhiteSpace(profile?.LiveRateMode) ? _options.LiveRateMode : profile!.LiveRateMode!.Trim(),
             LivePlacementPolicyMode: string.IsNullOrWhiteSpace(profile?.LivePlacementPolicyMode) ? _options.LivePlacementPolicyMode : profile!.LivePlacementPolicyMode!.Trim(),
             ManagedOfferTargetMode: string.IsNullOrWhiteSpace(profile?.ManagedOfferTargetMode) ? _options.ManagedOfferTargetMode : profile!.ManagedOfferTargetMode!.Trim(),
+            ManagedOfferPolicyMode: string.IsNullOrWhiteSpace(profile?.ManagedOfferPolicyMode) ? _options.ManagedOfferPolicyMode : profile!.ManagedOfferPolicyMode!.Trim(),
             LiveUseFrrAsFloor: profile?.LiveUseFrrAsFloor ?? _options.LiveUseFrrAsFloor,
             LiveLowRegimeRateMultiplier: profile?.LiveLowRegimeRateMultiplier ?? _options.LiveLowRegimeRateMultiplier,
             LiveNormalRegimeRateMultiplier: profile?.LiveNormalRegimeRateMultiplier ?? _options.LiveNormalRegimeRateMultiplier,
@@ -3774,7 +3877,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var settings = ResolveSymbolSettings(symbol);
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -3784,6 +3887,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.LiveRateMode,
                 settings.LivePlacementPolicyMode,
                 settings.ManagedOfferTargetMode,
+                settings.ManagedOfferPolicyMode,
                 settings.MinDailyRate,
                 settings.MaxDailyRate,
                 settings.LiveLowRegimeRateMultiplier,
@@ -3925,6 +4029,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         string LiveRateMode,
         string LivePlacementPolicyMode,
         string ManagedOfferTargetMode,
+        string ManagedOfferPolicyMode,
         bool LiveUseFrrAsFloor,
         decimal LiveLowRegimeRateMultiplier,
         decimal LiveNormalRegimeRateMultiplier,

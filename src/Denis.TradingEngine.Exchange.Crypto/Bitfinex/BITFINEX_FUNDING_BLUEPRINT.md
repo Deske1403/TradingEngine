@@ -482,7 +482,11 @@ Status:
   - after the wait budget expires, it falls back to the `Motor` rate derived from the current market anchor
   - active-offer repricing still follows the separate managed-offer promotion path
 - this gives us the first real live `wait -> fallback` behavior without promoting the whole shadow action system into live mutation logic
-- next task is to validate this behavior over real return cycles before allowing more aggressive live promotion
+- managed active offers now also support `KeepThenMotorFallback`:
+  - keep the current live offer while it is still young
+  - once the replace-age window passes, allow a controlled repricing down toward the `Motor` fallback target
+  - this adds the first live `keep -> wait -> lower -> replace` path for stale managed offers
+- next task is to validate both fresh-entry and managed-offer fallback behavior over real return cycles before allowing more aggressive live promotion
 
 ### Step 5. Add Opportunistic Layer
 
