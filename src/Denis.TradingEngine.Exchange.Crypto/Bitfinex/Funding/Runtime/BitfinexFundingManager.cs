@@ -30,6 +30,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private readonly Dictionary<string, FundingWalletBalance> _latestWalletBalances = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FundingShadowActionSession> _shadowActionSessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FundingLivePlacementWaitState> _livePlacementWaitStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FundingManagedFallbackCarryForwardState> _managedFallbackCarryForwardStates = new(StringComparer.OrdinalIgnoreCase);
 
     private CancellationTokenSource? _linkedCts;
     private Task? _loopTask;
@@ -522,6 +523,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
     private FundingDecision BuildFreshPlacementDecision(FundingPlacementCandidate candidate, DateTime nowUtc)
     {
+        if (TryApplyManagedFallbackCarryForward(candidate, nowUtc, out var carryForwardDecision))
+            return carryForwardDecision;
+
         var policy = ResolveLivePlacementPolicy(candidate);
         if (policy.PlaceImmediately)
         {
@@ -633,6 +637,54 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             TargetSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={maxWaitMinutes}m target={candidate.Request.Rate:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} {candidate.RateSelectionSummary}",
             FallbackSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={maxWaitMinutes}m fallback={fallbackRate:E6} motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
             PlaceImmediately: placeImmediately);
+    }
+
+    private bool TryApplyManagedFallbackCarryForward(
+        FundingPlacementCandidate candidate,
+        DateTime nowUtc,
+        out FundingDecision decision)
+    {
+        lock (_livePlacementSync)
+        {
+            if (!_managedFallbackCarryForwardStates.TryGetValue(candidate.Symbol, out var state))
+            {
+                decision = default!;
+                return false;
+            }
+
+            if (nowUtc > state.ExpiresUtc)
+            {
+                _managedFallbackCarryForwardStates.Remove(candidate.Symbol);
+                decision = default!;
+                return false;
+            }
+
+            if (candidate.Request.Amount != state.Amount || candidate.Request.PeriodDays != state.PeriodDays)
+            {
+                _managedFallbackCarryForwardStates.Remove(candidate.Symbol);
+                decision = default!;
+                return false;
+            }
+
+            var carryForwardRequest = candidate.Request with { Rate = state.Rate };
+            decision = new FundingDecision(
+                Action: _options.DryRun ? "would_place" : "place",
+                IsDryRun: _options.DryRun,
+                IsActionable: true,
+                Symbol: candidate.Symbol,
+                Currency: candidate.Currency,
+                WalletType: candidate.WalletType,
+                AvailableBalance: candidate.AvailableBalance,
+                LendableBalance: candidate.LendableBalance,
+                ProposedAmount: carryForwardRequest.Amount,
+                ProposedRate: carryForwardRequest.Rate,
+                ProposedPeriodDays: carryForwardRequest.PeriodDays,
+                Reason: _options.DryRun
+                    ? $"Dry-run funding recommendation uses managed fallback carry-forward until {state.ExpiresUtc:O}. sourceOfferId={state.SourceOfferId} carry_rate={state.Rate:E6}"
+                    : $"Funding offer should reuse managed fallback carry-forward until {state.ExpiresUtc:O}. sourceOfferId={state.SourceOfferId} carry_rate={state.Rate:E6}",
+                TimestampUtc: nowUtc);
+            return true;
+        }
     }
 
     private FundingDecision BuildManagedOfferDecision(
@@ -801,6 +853,43 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         }
     }
 
+    private void RememberManagedFallbackCarryForward(
+        string symbol,
+        FundingOfferRequest request,
+        string? sourceOfferId,
+        DateTime nowUtc,
+        FundingSymbolRuntimeSettings symbolSettings)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+            return;
+
+        var carryMinutes = Math.Max(1, symbolSettings.ManagedOfferFallbackCarryForwardMinutes);
+        var state = new FundingManagedFallbackCarryForwardState(
+            Symbol: symbol,
+            Amount: request.Amount,
+            PeriodDays: request.PeriodDays,
+            Rate: request.Rate,
+            SourceOfferId: sourceOfferId,
+            CreatedUtc: nowUtc,
+            ExpiresUtc: nowUtc.AddMinutes(carryMinutes));
+
+        lock (_livePlacementSync)
+        {
+            _managedFallbackCarryForwardStates[symbol] = state;
+        }
+    }
+
+    private void ClearManagedFallbackCarryForward(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+            return;
+
+        lock (_livePlacementSync)
+        {
+            _managedFallbackCarryForwardStates.Remove(symbol);
+        }
+    }
+
     private FundingWalletBalance? FindWalletBalance(IReadOnlyList<FundingWalletBalance> wallets, string currency)
     {
         if (wallets.Count == 0)
@@ -898,6 +987,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 {
                     RememberManagedOffer(result.OfferId);
                     ClearLivePlacementWaitState(candidate.Symbol);
+                    ClearManagedFallbackCarryForward(candidate.Symbol);
                 }
 
                 if (result.Success)
@@ -956,6 +1046,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 if (submitResult.Success && !string.IsNullOrWhiteSpace(submitResult.OfferId))
                 {
                     RememberManagedOffer(submitResult.OfferId);
+                    if (decision.Reason.Contains("managed_policy=KeepThenMotorFallback", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RememberManagedFallbackCarryForward(
+                            candidate.Symbol,
+                            targetRequest,
+                            offer.OfferId,
+                            DateTime.UtcNow,
+                            candidate.SymbolSettings);
+                    }
+                    else
+                    {
+                        ClearManagedFallbackCarryForward(candidate.Symbol);
+                    }
                 }
 
                 await RefreshActiveOffersForSymbolAsync(candidate.Symbol, ct).ConfigureAwait(false);
@@ -3865,6 +3968,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             MotorMaxWaitMinutesLowRegime: profile?.MotorMaxWaitMinutesLowRegime ?? _options.MotorMaxWaitMinutesLowRegime,
             MotorMaxWaitMinutesNormalRegime: profile?.MotorMaxWaitMinutesNormalRegime ?? _options.MotorMaxWaitMinutesNormalRegime,
             MotorMaxWaitMinutesHotRegime: profile?.MotorMaxWaitMinutesHotRegime ?? _options.MotorMaxWaitMinutesHotRegime,
+            ManagedOfferFallbackCarryForwardMinutes: profile?.ManagedOfferFallbackCarryForwardMinutes ?? _options.ManagedOfferFallbackCarryForwardMinutes,
             OpportunisticMaxWaitMinutesLowRegime: profile?.OpportunisticMaxWaitMinutesLowRegime ?? _options.OpportunisticMaxWaitMinutesLowRegime,
             OpportunisticMaxWaitMinutesNormalRegime: profile?.OpportunisticMaxWaitMinutesNormalRegime ?? _options.OpportunisticMaxWaitMinutesNormalRegime,
             OpportunisticMaxWaitMinutesHotRegime: profile?.OpportunisticMaxWaitMinutesHotRegime ?? _options.OpportunisticMaxWaitMinutesHotRegime
@@ -3877,7 +3981,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var settings = ResolveSymbolSettings(symbol);
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -3888,6 +3992,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.LivePlacementPolicyMode,
                 settings.ManagedOfferTargetMode,
                 settings.ManagedOfferPolicyMode,
+                settings.ManagedOfferFallbackCarryForwardMinutes,
                 settings.MinDailyRate,
                 settings.MaxDailyRate,
                 settings.LiveLowRegimeRateMultiplier,
@@ -4041,6 +4146,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         int MotorMaxWaitMinutesLowRegime,
         int MotorMaxWaitMinutesNormalRegime,
         int MotorMaxWaitMinutesHotRegime,
+        int ManagedOfferFallbackCarryForwardMinutes,
         int OpportunisticMaxWaitMinutesLowRegime,
         int OpportunisticMaxWaitMinutesNormalRegime,
         int OpportunisticMaxWaitMinutesHotRegime);
@@ -4065,6 +4171,15 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         DateTime StartedUtc,
         DateTime DeadlineUtc,
         DateTime LastSeenUtc);
+
+    private sealed record FundingManagedFallbackCarryForwardState(
+        string Symbol,
+        decimal Amount,
+        int PeriodDays,
+        decimal Rate,
+        string? SourceOfferId,
+        DateTime CreatedUtc,
+        DateTime ExpiresUtc);
 
     private sealed record FundingLifecycleAllocationCandidate(
         string Kind,

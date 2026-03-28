@@ -1357,6 +1357,7 @@ Supported modes:
 - otherwise, runtime can keep a live managed offer for the configured minimum replace age
 - after that wait window, if the offer is still materially above the `Motor` fallback rate, runtime can reprice it down toward `Motor`
 - this gives live runtime a first explicit `keep -> wait -> lower -> replace` policy for stale managed offers
+- if that fallback-repriced offer is executed immediately, runtime now carries the fallback rate forward for a short bounded window so the next fresh re-entry does not jump straight back to the old `HOT` ceiling
 
 Practical meaning:
 

@@ -486,6 +486,7 @@ Status:
   - keep the current live offer while it is still young
   - once the replace-age window passes, allow a controlled repricing down toward the `Motor` fallback target
   - this adds the first live `keep -> wait -> lower -> replace` path for stale managed offers
+- immediate post-fill fresh re-entry now also keeps a short carry-forward memory of that fallback target so a just-lowered managed offer does not instantly bounce back to the old `HOT` placement ceiling
 - next task is to validate both fresh-entry and managed-offer fallback behavior over real return cycles before allowing more aggressive live promotion
 
 ### Step 5. Add Opportunistic Layer
