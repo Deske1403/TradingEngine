@@ -595,7 +595,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     private FundingLivePlacementPolicy ResolveLivePlacementPolicy(FundingPlacementCandidate candidate)
     {
         var normalizedMode = NormalizeLivePlacementPolicyMode(candidate.SymbolSettings.LivePlacementPolicyMode);
-        if (normalizedMode != "MOTORWAITFALLBACK")
+        if (normalizedMode != "MOTORWAITFALLBACK" &&
+            normalizedMode != "OPPORTUNISTICWAITFALLBACK")
         {
             return new FundingLivePlacementPolicy(
                 Mode: normalizedMode,
@@ -621,22 +622,48 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ? Math.Max(safeAnchor, frrRate)
             : safeAnchor;
         var regime = ClassifyMarketRegime(regimeAnchor, candidate.SymbolSettings);
-        var maxWaitMinutes = GetMotorMaxWaitMinutes(regime, candidate.SymbolSettings);
-        var fallbackRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
-        var fallbackRequest = candidate.Request with { Rate = fallbackRate };
-        var placeImmediately =
+
+        if (normalizedMode == "OPPORTUNISTICWAITFALLBACK")
+        {
+            var opportunisticRegime = string.Equals(regime, "LOW", StringComparison.OrdinalIgnoreCase)
+                ? "NORMAL"
+                : regime;
+            var targetRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.OpportunisticRateMultiplier, candidate.SymbolSettings);
+            var targetRequest = candidate.Request with { Rate = targetRate };
+            var fallbackRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
+            var fallbackRequest = candidate.Request with { Rate = fallbackRate };
+            var maxWaitMinutes = GetOpportunisticMaxWaitMinutes(opportunisticRegime, candidate.SymbolSettings);
+            var placeImmediately =
+                string.Equals(opportunisticRegime, "HOT", StringComparison.OrdinalIgnoreCase) ||
+                Math.Abs(targetRate - fallbackRate) < _options.ReplaceMinRateDelta;
+
+            return new FundingLivePlacementPolicy(
+                Mode: normalizedMode,
+                Regime: opportunisticRegime,
+                MaxWaitMinutes: maxWaitMinutes,
+                TargetRequest: targetRequest,
+                FallbackRequest: fallbackRequest,
+                TargetSummary: $"placement_policy=OpportunisticWaitFallback regime={opportunisticRegime} wait={maxWaitMinutes}m target={targetRate:E6} oppMult={candidate.SymbolSettings.OpportunisticRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+                FallbackSummary: $"placement_policy=OpportunisticWaitFallback regime={opportunisticRegime} wait={maxWaitMinutes}m fallback={fallbackRate:E6} fallbackBucket=Motor motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+                PlaceImmediately: placeImmediately);
+        }
+
+        var motorMaxWaitMinutes = GetMotorMaxWaitMinutes(regime, candidate.SymbolSettings);
+        var motorFallbackRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
+        var motorFallbackRequest = candidate.Request with { Rate = motorFallbackRate };
+        var motorPlaceImmediately =
             string.Equals(regime, "HOT", StringComparison.OrdinalIgnoreCase) ||
-            Math.Abs(candidate.Request.Rate - fallbackRate) < _options.ReplaceMinRateDelta;
+            Math.Abs(candidate.Request.Rate - motorFallbackRate) < _options.ReplaceMinRateDelta;
 
         return new FundingLivePlacementPolicy(
             Mode: normalizedMode,
             Regime: regime,
-            MaxWaitMinutes: maxWaitMinutes,
+            MaxWaitMinutes: motorMaxWaitMinutes,
             TargetRequest: candidate.Request,
-            FallbackRequest: fallbackRequest,
-            TargetSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={maxWaitMinutes}m target={candidate.Request.Rate:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} {candidate.RateSelectionSummary}",
-            FallbackSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={maxWaitMinutes}m fallback={fallbackRate:E6} motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
-            PlaceImmediately: placeImmediately);
+            FallbackRequest: motorFallbackRequest,
+            TargetSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={motorMaxWaitMinutes}m target={candidate.Request.Rate:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)} {candidate.RateSelectionSummary}",
+            FallbackSummary: $"placement_policy=MotorWaitFallback regime={regime} wait={motorMaxWaitMinutes}m fallback={motorFallbackRate:E6} motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+            PlaceImmediately: motorPlaceImmediately);
     }
 
     private bool TryApplyManagedFallbackCarryForward(

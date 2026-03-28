@@ -477,17 +477,27 @@ Status:
 - live now also supports a first bounded placement-policy gate for fresh entries:
   - `Immediate`
   - `MotorWaitFallback`
+  - `OpportunisticWaitFallback`
 - `MotorWaitFallback` is a narrow live promotion of the blueprint idea:
   - if there is no active offer and regime is not `HOT`, the engine can wait for a bounded `Motor` window instead of placing immediately
   - after the wait budget expires, it falls back to the `Motor` rate derived from the current market anchor
   - active-offer repricing still follows the separate managed-offer promotion path
 - this gives us the first real live `wait -> fallback` behavior without promoting the whole shadow action system into live mutation logic
+- `OpportunisticWaitFallback` is the next narrow fresh-entry promotion:
+  - target rate comes from the `Opportunistic` multiplier
+  - wait budget comes from the `Opportunistic` wait profile
+  - if the wait expires, runtime falls back to the `Motor` rate
+  - `HOT` still places immediately
+  - `LOW` collapses into the `NORMAL` opportunistic wait profile to stay conservative
 - managed active offers now also support `KeepThenMotorFallback`:
   - keep the current live offer while it is still young
   - once the replace-age window passes, allow a controlled repricing down toward the `Motor` fallback target
   - this adds the first live `keep -> wait -> lower -> replace` path for stale managed offers
 - immediate post-fill fresh re-entry now also keeps a short carry-forward memory of that fallback target so a just-lowered managed offer does not instantly bounce back to the old `HOT` placement ceiling
 - next task is to validate both fresh-entry and managed-offer fallback behavior over real return cycles before allowing more aggressive live promotion
+- with this slice in place, the next useful real-cycle check is to catch:
+  - `OpportunisticWaitFallback -> wait_for_target_rate`
+  - or `OpportunisticWaitFallback -> place_after_wait_fallback`
 
 ### Step 5. Add Opportunistic Layer
 

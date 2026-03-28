@@ -1276,6 +1276,7 @@ Supported modes:
 
 - `Immediate`
 - `MotorWaitFallback`
+- `OpportunisticWaitFallback`
 
 `MotorWaitFallback` behavior:
 
@@ -1295,6 +1296,21 @@ Important boundary:
 - full shadow action semantics still remain richer than live
 - this slice only promotes the narrow `Motor` timing behavior for fresh placements
 - it does not yet make live placement fully shadow-driven
+
+`OpportunisticWaitFallback` behavior:
+
+- fresh entries target an `Opportunistic`-derived rate
+- they use the configured `OpportunisticMaxWaitMinutes*Regime` budget
+- if that wait budget expires, they fall back to the `Motor`-derived rate and place then
+- if regime is `HOT`, place immediately at the `Opportunistic` target
+- if target and fallback are effectively the same, place immediately
+- `LOW` is intentionally collapsed into the `NORMAL` opportunistic wait profile so the first promotion stays bounded
+
+Practical meaning:
+
+- fresh live entries can now express the blueprint path `Opportunistic -> Motor fallback`
+- managed active-offer repricing still stays on the separate `ManagedOfferPolicyMode` path
+- this is the next narrow live bridge from shadow planning into real capital behavior
 
 ## Managed-offer promotion gate
 
