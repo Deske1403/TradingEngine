@@ -40,9 +40,13 @@ public sealed class BitfinexFundingSymbolProfile
 
     public decimal? OpportunisticAllocationFraction { get; set; }
 
+    public decimal? SniperAllocationFraction { get; set; }
+
     public decimal? MotorRateMultiplier { get; set; }
 
     public decimal? OpportunisticRateMultiplier { get; set; }
+
+    public decimal? SniperRateMultiplier { get; set; }
 
     public int? MotorMaxWaitMinutesLowRegime { get; set; }
 
@@ -57,4 +61,10 @@ public sealed class BitfinexFundingSymbolProfile
     public int? OpportunisticMaxWaitMinutesNormalRegime { get; set; }
 
     public int? OpportunisticMaxWaitMinutesHotRegime { get; set; }
+
+    public int? SniperMaxWaitMinutesLowRegime { get; set; }
+
+    public int? SniperMaxWaitMinutesNormalRegime { get; set; }
+
+    public int? SniperMaxWaitMinutesHotRegime { get; set; }
 }

@@ -92,9 +92,13 @@ public sealed class BitfinexFundingOptions
 
     public decimal OpportunisticAllocationFraction { get; set; } = 0.30m;
 
+    public decimal SniperAllocationFraction { get; set; } = 0.10m;
+
     public decimal MotorRateMultiplier { get; set; } = 0.97m;
 
     public decimal OpportunisticRateMultiplier { get; set; } = 1.08m;
+
+    public decimal SniperRateMultiplier { get; set; } = 1.18m;
 
     public int MotorMaxWaitMinutesLowRegime { get; set; } = 20;
 
@@ -107,4 +111,10 @@ public sealed class BitfinexFundingOptions
     public int OpportunisticMaxWaitMinutesNormalRegime { get; set; } = 60;
 
     public int OpportunisticMaxWaitMinutesHotRegime { get; set; } = 20;
+
+    public int SniperMaxWaitMinutesLowRegime { get; set; } = 240;
+
+    public int SniperMaxWaitMinutesNormalRegime { get; set; } = 120;
+
+    public int SniperMaxWaitMinutesHotRegime { get; set; } = 30;
 }

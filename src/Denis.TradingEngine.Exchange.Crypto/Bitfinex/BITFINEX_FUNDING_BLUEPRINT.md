@@ -439,12 +439,15 @@ Status:
   - `LiveLowRegimeRateMultiplier`
   - `LiveNormalRegimeRateMultiplier`
   - `LiveHotRegimeRateMultiplier`
-  - `MotorAllocationFraction`
-  - `OpportunisticAllocationFraction`
-  - `MotorRateMultiplier`
-  - `OpportunisticRateMultiplier`
-  - `MotorMaxWaitMinutesLow/Normal/HotRegime`
-  - `OpportunisticMaxWaitMinutesLow/Normal/HotRegime`
+- `MotorAllocationFraction`
+- `OpportunisticAllocationFraction`
+- `SniperAllocationFraction`
+- `MotorRateMultiplier`
+- `OpportunisticRateMultiplier`
+- `SniperRateMultiplier`
+- `MotorMaxWaitMinutesLow/Normal/HotRegime`
+- `OpportunisticMaxWaitMinutesLow/Normal/HotRegime`
+- `SniperMaxWaitMinutesLow/Normal/HotRegime`
 - startup now logs the effective runtime profile per symbol so live behavior is auditable before the first funding cycle
 - managed-offer ownership now survives restart through persisted `managed_by_engine` state plus submit-history recovery
 - this closes the old gap where the same live offer became `external` after process restart
@@ -489,6 +492,15 @@ Status:
   - if the wait expires, runtime falls back to the `Motor` rate
   - `HOT` still places immediately
   - `LOW` collapses into the `NORMAL` opportunistic wait profile to stay conservative
+- the shadow layer now also supports a third bucket:
+  - `Sniper`
+  - small allocation fraction
+  - highest target-rate multiplier
+  - long bounded wait window
+  - fallback into `Opportunistic`, then indirectly into `Motor`
+- `Sniper` remains shadow-only for now:
+  - it does not mutate live funding offers
+  - it exists so we can observe spike-capture intent before allowing it to touch capital
 - managed active offers now also support `KeepThenMotorFallback`:
   - keep the current live offer while it is still young
   - once the replace-age window passes, allow a controlled repricing down toward the `Motor` fallback target
@@ -520,6 +532,7 @@ Status:
   - dedicated funding-table storage and joined reporting against actual realized outcomes
 - the shadow layer now also emits explicit action policy, so we can measure the next safe promotion step before lowering reserve and re-enabling live re-entry
 - the shadow layer now also keeps short-lived stateful sessions so `wait -> fallback -> placed/closed` can be observed as a coherent mini-journey instead of isolated rows
+- `Sniper` is now added as the third shadow-only bucket so `Motor / Opportunistic / Sniper` can be compared in the same runtime telemetry
 
 ### Step 6. Measure Before Expanding
 
@@ -557,6 +570,13 @@ Only after the whole system is measurable and trustworthy.
 Goal:
 
 - optional spike capture with small capital
+
+Status:
+
+- first `Sniper` implementation now exists in `shadow mode` only
+- it is intentionally not promoted into live mutation yet
+- next promotion rule stays the same:
+  - only after repeated live cycles show that the measured `Sniper` edge is real
 
 ## What We Should Avoid
 

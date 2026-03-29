@@ -3190,12 +3190,14 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             var marketRate = ticker.AskRate > 0m ? ticker.AskRate : ticker.BidRate;
             var regime = ClassifyMarketRegime(marketRate, symbolSettings);
             var timestampUtc = DateTime.UtcNow;
-            var buckets = new List<FundingShadowBucket>(2);
+            var buckets = new List<FundingShadowBucket>(3);
             var motorFraction = ClampFraction(symbolSettings.MotorAllocationFraction);
             var opportunisticFraction = ClampFraction(symbolSettings.OpportunisticAllocationFraction);
-            var totalFraction = motorFraction + opportunisticFraction;
+            var sniperFraction = ClampFraction(symbolSettings.SniperAllocationFraction);
+            var totalFraction = motorFraction + opportunisticFraction + sniperFraction;
             var normalizedMotorFraction = totalFraction <= 0m ? 0m : motorFraction / totalFraction;
             var normalizedOppFraction = totalFraction <= 0m ? 0m : opportunisticFraction / totalFraction;
+            var normalizedSniperFraction = totalFraction <= 0m ? 0m : sniperFraction / totalFraction;
 
             if (totalFraction > 0m && lendable >= symbolSettings.MinOfferAmount)
             {
@@ -3205,6 +3207,10 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     MidpointRounding.ToZero);
                 var opportunisticTargetAmount = decimal.Round(
                     Math.Min(lendable * normalizedOppFraction, symbolSettings.MaxOfferAmount),
+                    8,
+                    MidpointRounding.ToZero);
+                var sniperTargetAmount = decimal.Round(
+                    Math.Min(lendable * normalizedSniperFraction, symbolSettings.MaxOfferAmount),
                     8,
                     MidpointRounding.ToZero);
 
@@ -3218,7 +3224,12 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     opportunisticTargetAmount = 0m;
                 }
 
-                if (motorTargetAmount == 0m && opportunisticTargetAmount == 0m)
+                if (sniperTargetAmount < symbolSettings.MinOfferAmount)
+                {
+                    sniperTargetAmount = 0m;
+                }
+
+                if (motorTargetAmount == 0m && opportunisticTargetAmount == 0m && sniperTargetAmount == 0m)
                 {
                     motorTargetAmount = decimal.Round(Math.Min(lendable, symbolSettings.MaxOfferAmount), 8, MidpointRounding.ToZero);
                 }
@@ -3247,6 +3258,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                         MaxWaitMinutes: GetOpportunisticMaxWaitMinutes(regime, symbolSettings),
                         Role: "yield_enhancement",
                         FallbackBucket: "Motor"));
+                }
+
+                if (sniperTargetAmount > 0m)
+                {
+                    buckets.Add(new FundingShadowBucket(
+                        Bucket: "Sniper",
+                        AllocationAmount: sniperTargetAmount,
+                        AllocationFraction: normalizedSniperFraction,
+                        TargetRate: SelectShadowRate(marketRate, symbolSettings.SniperRateMultiplier, symbolSettings),
+                        TargetPeriodDays: 2,
+                        MaxWaitMinutes: GetSniperMaxWaitMinutes(regime, symbolSettings),
+                        Role: "spike_capture",
+                        FallbackBucket: opportunisticTargetAmount > 0m ? "Opportunistic" : "Motor"));
                 }
             }
 
@@ -3377,7 +3401,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var shouldReplace = ShouldReplaceOffer(activeOffer, targetRequest, out var replaceReason);
 
-            if (string.Equals(bucket.Bucket, "Opportunistic", StringComparison.OrdinalIgnoreCase) &&
+            if ((string.Equals(bucket.Bucket, "Opportunistic", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(bucket.Bucket, "Sniper", StringComparison.OrdinalIgnoreCase)) &&
                 !string.Equals(plan.Regime, "HOT", StringComparison.OrdinalIgnoreCase))
             {
                 return CreateShadowAction(
@@ -3389,8 +3414,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     decisionDeadlineUtc: deadlineUtc,
                     activeOffers: activeOffers,
                     reason: shouldReplace
-                        ? $"Opportunistic bucket would wait for stronger conditions and then fall back to {bucket.FallbackBucket ?? "Motor"}. {replaceReason}"
-                        : $"Existing active offer is acceptable for the shadow opportunistic bucket. {replaceReason}",
+                        ? $"{bucket.Bucket} bucket would wait for stronger conditions and then fall back to {bucket.FallbackBucket ?? "Motor"}. {replaceReason}"
+                        : $"Existing active offer is acceptable for the shadow {bucket.Bucket} bucket. {replaceReason}",
                     summary: shouldReplace
                         ? $"{bucket.Bucket} would wait up to {bucket.MaxWaitMinutes}m before falling back to {bucket.FallbackBucket ?? "Motor"}."
                         : $"{bucket.Bucket} would keep the current active offer.");
@@ -3448,7 +3473,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             fallbackRate: fallbackRate,
             decisionDeadlineUtc: deadlineUtc,
             activeOffers: activeOffers,
-            reason: $"Opportunistic bucket would wait for a better rate for up to {bucket.MaxWaitMinutes} minutes before falling back to {bucket.FallbackBucket ?? "Motor"}.",
+            reason: $"{bucket.Bucket} bucket would wait for a better rate for up to {bucket.MaxWaitMinutes} minutes before falling back to {bucket.FallbackBucket ?? "Motor"}.",
             summary: $"{bucket.Bucket} would wait up to {bucket.MaxWaitMinutes}m before fallback.");
     }
 
@@ -3931,6 +3956,16 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         };
     }
 
+    private int GetSniperMaxWaitMinutes(string regime, FundingSymbolRuntimeSettings symbolSettings)
+    {
+        return regime switch
+        {
+            "HOT" => Math.Max(1, symbolSettings.SniperMaxWaitMinutesHotRegime),
+            "LOW" => Math.Max(1, symbolSettings.SniperMaxWaitMinutesLowRegime),
+            _ => Math.Max(1, symbolSettings.SniperMaxWaitMinutesNormalRegime)
+        };
+    }
+
     private static decimal ClampFraction(decimal value)
     {
         return Math.Clamp(value, 0m, 1m);
@@ -3990,15 +4025,20 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             LiveHotRegimeRateMultiplier: profile?.LiveHotRegimeRateMultiplier ?? _options.LiveHotRegimeRateMultiplier,
             MotorAllocationFraction: profile?.MotorAllocationFraction ?? _options.MotorAllocationFraction,
             OpportunisticAllocationFraction: profile?.OpportunisticAllocationFraction ?? _options.OpportunisticAllocationFraction,
+            SniperAllocationFraction: profile?.SniperAllocationFraction ?? _options.SniperAllocationFraction,
             MotorRateMultiplier: profile?.MotorRateMultiplier ?? _options.MotorRateMultiplier,
             OpportunisticRateMultiplier: profile?.OpportunisticRateMultiplier ?? _options.OpportunisticRateMultiplier,
+            SniperRateMultiplier: profile?.SniperRateMultiplier ?? _options.SniperRateMultiplier,
             MotorMaxWaitMinutesLowRegime: profile?.MotorMaxWaitMinutesLowRegime ?? _options.MotorMaxWaitMinutesLowRegime,
             MotorMaxWaitMinutesNormalRegime: profile?.MotorMaxWaitMinutesNormalRegime ?? _options.MotorMaxWaitMinutesNormalRegime,
             MotorMaxWaitMinutesHotRegime: profile?.MotorMaxWaitMinutesHotRegime ?? _options.MotorMaxWaitMinutesHotRegime,
             ManagedOfferFallbackCarryForwardMinutes: profile?.ManagedOfferFallbackCarryForwardMinutes ?? _options.ManagedOfferFallbackCarryForwardMinutes,
             OpportunisticMaxWaitMinutesLowRegime: profile?.OpportunisticMaxWaitMinutesLowRegime ?? _options.OpportunisticMaxWaitMinutesLowRegime,
             OpportunisticMaxWaitMinutesNormalRegime: profile?.OpportunisticMaxWaitMinutesNormalRegime ?? _options.OpportunisticMaxWaitMinutesNormalRegime,
-            OpportunisticMaxWaitMinutesHotRegime: profile?.OpportunisticMaxWaitMinutesHotRegime ?? _options.OpportunisticMaxWaitMinutesHotRegime
+            OpportunisticMaxWaitMinutesHotRegime: profile?.OpportunisticMaxWaitMinutesHotRegime ?? _options.OpportunisticMaxWaitMinutesHotRegime,
+            SniperMaxWaitMinutesLowRegime: profile?.SniperMaxWaitMinutesLowRegime ?? _options.SniperMaxWaitMinutesLowRegime,
+            SniperMaxWaitMinutesNormalRegime: profile?.SniperMaxWaitMinutesNormalRegime ?? _options.SniperMaxWaitMinutesNormalRegime,
+            SniperMaxWaitMinutesHotRegime: profile?.SniperMaxWaitMinutesHotRegime ?? _options.SniperMaxWaitMinutesHotRegime
         );
     }
 
@@ -4008,7 +4048,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var settings = ResolveSymbolSettings(symbol);
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -4027,14 +4067,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.LiveHotRegimeRateMultiplier,
                 settings.MotorAllocationFraction,
                 settings.OpportunisticAllocationFraction,
+                settings.SniperAllocationFraction,
                 settings.MotorRateMultiplier,
                 settings.OpportunisticRateMultiplier,
+                settings.SniperRateMultiplier,
                 settings.MotorMaxWaitMinutesLowRegime,
                 settings.MotorMaxWaitMinutesNormalRegime,
                 settings.MotorMaxWaitMinutesHotRegime,
                 settings.OpportunisticMaxWaitMinutesLowRegime,
                 settings.OpportunisticMaxWaitMinutesNormalRegime,
-                settings.OpportunisticMaxWaitMinutesHotRegime);
+                settings.OpportunisticMaxWaitMinutesHotRegime,
+                settings.SniperMaxWaitMinutesLowRegime,
+                settings.SniperMaxWaitMinutesNormalRegime,
+                settings.SniperMaxWaitMinutesHotRegime);
         }
     }
 
@@ -4168,15 +4213,20 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal LiveHotRegimeRateMultiplier,
         decimal MotorAllocationFraction,
         decimal OpportunisticAllocationFraction,
+        decimal SniperAllocationFraction,
         decimal MotorRateMultiplier,
         decimal OpportunisticRateMultiplier,
+        decimal SniperRateMultiplier,
         int MotorMaxWaitMinutesLowRegime,
         int MotorMaxWaitMinutesNormalRegime,
         int MotorMaxWaitMinutesHotRegime,
         int ManagedOfferFallbackCarryForwardMinutes,
         int OpportunisticMaxWaitMinutesLowRegime,
         int OpportunisticMaxWaitMinutesNormalRegime,
-        int OpportunisticMaxWaitMinutesHotRegime);
+        int OpportunisticMaxWaitMinutesHotRegime,
+        int SniperMaxWaitMinutesLowRegime,
+        int SniperMaxWaitMinutesNormalRegime,
+        int SniperMaxWaitMinutesHotRegime);
 
     private sealed record FundingLivePlacementPolicy(
         string Mode,

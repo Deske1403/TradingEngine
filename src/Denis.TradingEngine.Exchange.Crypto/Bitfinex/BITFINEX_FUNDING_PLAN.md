@@ -1312,6 +1312,19 @@ Practical meaning:
 - managed active-offer repricing still stays on the separate `ManagedOfferPolicyMode` path
 - this is the next narrow live bridge from shadow planning into real capital behavior
 
+Shadow planning now also supports a third measurement-only bucket:
+
+- `Sniper`
+- smaller allocation share than `Motor`/`Opportunistic`
+- highest rate multiplier
+- longest bounded wait window
+- fallback into `Opportunistic`, then into `Motor`
+
+Important boundary:
+
+- `Sniper` is shadow-only in this slice
+- it exists to test spike-capture intent, not to mutate live offers yet
+
 ## Managed-offer promotion gate
 
 Live runtime now also supports a separate managed-offer target policy through `ManagedOfferTargetMode`.
@@ -1405,14 +1418,19 @@ Advanced per-symbol controls:
 - `LiveHotRegimeRateMultiplier`
 - `MotorAllocationFraction`
 - `OpportunisticAllocationFraction`
+- `SniperAllocationFraction`
 - `MotorRateMultiplier`
 - `OpportunisticRateMultiplier`
+- `SniperRateMultiplier`
 - `MotorMaxWaitMinutesLowRegime`
 - `MotorMaxWaitMinutesNormalRegime`
 - `MotorMaxWaitMinutesHotRegime`
 - `OpportunisticMaxWaitMinutesLowRegime`
 - `OpportunisticMaxWaitMinutesNormalRegime`
 - `OpportunisticMaxWaitMinutesHotRegime`
+- `SniperMaxWaitMinutesLowRegime`
+- `SniperMaxWaitMinutesNormalRegime`
+- `SniperMaxWaitMinutesHotRegime`
 
 Practical meaning:
 
@@ -1421,6 +1439,7 @@ Practical meaning:
 - one symbol can be disabled without removing it from the general funding module
 - one symbol can be more aggressive on rate band / regime multiplier while another stays conservative
 - one symbol can keep a tighter `Motor` wait budget while another tolerates more `Opportunistic` waiting
+- one symbol can completely suppress or enlarge `Sniper` shadow sizing without affecting the others
 
 Operational visibility:
 
