@@ -15,5 +15,9 @@ public sealed record FundingDecision(
     decimal? ProposedRate,
     int? ProposedPeriodDays,
     string Reason,
-    DateTime TimestampUtc
+    DateTime TimestampUtc,
+    string? TargetOfferId = null,
+    string? SlotRole = null,
+    int? SlotIndex = null,
+    int? SlotCount = null
 );

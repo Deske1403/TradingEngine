@@ -543,6 +543,11 @@ Status:
 - with this slice in place, the next useful real-cycle check is to catch:
   - `OpportunisticWaitFallback -> wait_for_target_rate`
   - or `OpportunisticWaitFallback -> place_after_wait_fallback`
+- managed active offers are now also evaluated as explicit live slot roles once capacity is full:
+  - full symbols no longer stop at a generic `capacity_reached` summary
+  - active offers are classified into effective `Motor` vs `Opportunistic` roles
+  - managed keep / wait / replace now runs against that role-aware target
+  - multi-offer replace is targeted to a concrete active `offerId`, so one slot can be repriced without assuming the symbol only has a single active offer
 
 ### Step 5. Add Opportunistic Layer
 

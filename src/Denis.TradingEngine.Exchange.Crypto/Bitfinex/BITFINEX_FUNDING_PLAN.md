@@ -1344,6 +1344,27 @@ Practical meaning:
 - but avoids wasting future larger-capacity setups on a fixed `1 Motor + 1 Opportunistic` shape
 - live sizing is now ready for higher-capacity experiments without changing the slot planner again
 
+Managed active-offer handling is now also slot-role aware when live capacity is already full:
+
+- runtime no longer falls back to a generic `skip_active_offer_capacity_reached` as soon as `2/2` or `N/N` managed offers are active
+- active offers are classified into effective live slot roles:
+  - `Motor`
+  - `Opportunistic`
+- managed evaluation now runs against the selected live role:
+  - `Motor` slots keep using the baseline live target / managed fallback path
+  - `Opportunistic` slots can now be evaluated against the opportunistic live target instead of the generic baseline
+- `replace_offer` is now targeted to a concrete `offerId`, so a multi-offer symbol can still reprice one managed slot without collapsing into an ambiguous-state failure
+- live decision reasons now also carry:
+  - `slotRole=...`
+  - `slotIndex=N/M`
+  - `TargetOfferId`
+
+Practical meaning:
+
+- multi-offer live funding is no longer only smart on entry; it is now also smarter while full
+- stale `Opportunistic` managed offers can be lowered without pretending the symbol must first return to a single-offer state
+- the original bounded-capacity discipline stays intact; this slice only improves role-aware keep / wait / replace logic for already-active managed slots
+
 `MotorWaitFallback` behavior:
 
 - keep the current live rate selection as the target
