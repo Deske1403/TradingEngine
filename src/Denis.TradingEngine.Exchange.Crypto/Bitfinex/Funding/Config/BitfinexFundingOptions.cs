@@ -76,6 +76,8 @@ public sealed class BitfinexFundingOptions
 
     public int ManagedOfferFallbackCarryForwardMinutes { get; set; } = 10;
 
+    public int MaxActiveOffersPerSymbol { get; set; } = 1;
+
     public decimal ReplaceMinRateDelta { get; set; } = 0.00001m;
 
     public decimal ReplaceMinAmountDeltaFraction { get; set; } = 0.20m;

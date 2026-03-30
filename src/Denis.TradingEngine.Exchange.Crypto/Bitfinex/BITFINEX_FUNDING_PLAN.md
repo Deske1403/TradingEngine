@@ -1278,6 +1278,24 @@ Supported modes:
 - `MotorWaitFallback`
 - `OpportunisticWaitFallback`
 
+Live runtime now also supports bounded parallel offer capacity through `MaxActiveOffersPerSymbol`.
+
+`MaxActiveOffersPerSymbol` behavior:
+
+- `1` keeps the original single-managed-offer baseline
+- values above `1` allow a second managed placement while one managed offer is already active for the same symbol
+- runtime still refuses parallel placement if any active offer for that symbol is external / unmanaged
+- when capacity is full, runtime emits `skip_active_offer_capacity_reached`
+- extra parallel slots use the current live placement policy:
+  - if the policy says `place immediately`, runtime uses the target request
+  - if the policy would wait, runtime uses the fallback request so a second slot does not open another independent wait state
+
+Practical meaning:
+
+- this is the first live capital-scaling slice beyond the single-offer assumption
+- fresh returned capital can now deploy into another bounded managed slot instead of waiting for the first active offer to finish
+- scaling stays intentionally conservative because capacity is explicit and small
+
 `MotorWaitFallback` behavior:
 
 - keep the current live rate selection as the target
@@ -1411,7 +1429,10 @@ Advanced per-symbol controls:
 - `MinDailyRate`
 - `MaxDailyRate`
 - `LiveRateMode`
+- `LivePlacementPolicyMode`
 - `ManagedOfferTargetMode`
+- `ManagedOfferPolicyMode`
+- `MaxActiveOffersPerSymbol`
 - `LiveUseFrrAsFloor`
 - `LiveLowRegimeRateMultiplier`
 - `LiveNormalRegimeRateMultiplier`

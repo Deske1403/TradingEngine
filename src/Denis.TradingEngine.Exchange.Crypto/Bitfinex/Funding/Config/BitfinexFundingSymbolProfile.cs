@@ -56,6 +56,8 @@ public sealed class BitfinexFundingSymbolProfile
 
     public int? ManagedOfferFallbackCarryForwardMinutes { get; set; }
 
+    public int? MaxActiveOffersPerSymbol { get; set; }
+
     public int? OpportunisticMaxWaitMinutesLowRegime { get; set; }
 
     public int? OpportunisticMaxWaitMinutesNormalRegime { get; set; }

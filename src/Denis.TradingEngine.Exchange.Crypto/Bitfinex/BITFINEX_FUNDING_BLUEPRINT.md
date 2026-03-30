@@ -492,6 +492,17 @@ Status:
   - if the wait expires, runtime falls back to the `Motor` rate
   - `HOT` still places immediately
   - `LOW` collapses into the `NORMAL` opportunistic wait profile to stay conservative
+- live runtime now also supports bounded parallel capacity through `MaxActiveOffersPerSymbol`:
+  - `1` keeps the old single-offer behavior
+  - `2+` allows another managed offer while an older managed offer is still active
+  - external offers still block mutation
+  - if capacity is full, runtime emits `skip_active_offer_capacity_reached`
+  - extra parallel slots reuse the current live policy:
+    - immediate target if the policy already wants to place now
+    - fallback request if the policy would otherwise open another wait state
+- this is the first real live capital-deployment step beyond the one-offer baseline:
+  - returned capital no longer has to sit idle just because one managed offer is still waiting
+  - scaling stays bounded and explicit instead of flooding the order book
 - the shadow layer now also supports a third bucket:
   - `Sniper`
   - small allocation fraction

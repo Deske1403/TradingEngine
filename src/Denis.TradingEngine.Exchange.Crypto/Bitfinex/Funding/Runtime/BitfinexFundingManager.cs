@@ -446,6 +446,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         IReadOnlyList<FundingOfferInfo> activeOffers)
     {
         var nowUtc = DateTime.UtcNow;
+        var maxActiveOffers = Math.Max(1, candidate.SymbolSettings.MaxActiveOffersPerSymbol);
 
         if (candidate.PauseNewOffers)
         {
@@ -471,33 +472,15 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             );
         }
 
-        if (activeOffers.Count > 1)
+        if (activeOffers.Count > 0)
         {
-            ClearLivePlacementWaitState(candidate.Symbol);
-            return new FundingDecision(
-                Action: "skip_multiple_active_offers",
-                IsDryRun: _options.DryRun,
-                IsActionable: false,
-                Symbol: candidate.Symbol,
-                Currency: candidate.Currency,
-                WalletType: candidate.WalletType,
-                AvailableBalance: candidate.AvailableBalance,
-                LendableBalance: candidate.LendableBalance,
-                ProposedAmount: candidate.Request.Amount,
-                ProposedRate: candidate.Request.Rate,
-                ProposedPeriodDays: candidate.Request.PeriodDays,
-                Reason: $"Multiple active offers exist for {candidate.Symbol}; manager will not mutate ambiguous state. {candidate.RateSelectionSummary}",
-                TimestampUtc: nowUtc
-            );
-        }
+            var externalOffers = activeOffers
+                .Where(activeOffer => !(_options.AllowManagingExternalOffers || IsManagedOffer(activeOffer.OfferId)))
+                .ToArray();
 
-        if (activeOffers.Count == 1)
-        {
-            ClearLivePlacementWaitState(candidate.Symbol);
-            var activeOffer = activeOffers[0];
-            var canManageExisting = _options.AllowManagingExternalOffers || IsManagedOffer(activeOffer.OfferId);
-            if (!canManageExisting)
+            if (externalOffers.Length > 0)
             {
+                ClearLivePlacementWaitState(candidate.Symbol);
                 return new FundingDecision(
                     Action: "skip_external_active_offer_exists",
                     IsDryRun: _options.DryRun,
@@ -510,15 +493,75 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     ProposedAmount: candidate.Request.Amount,
                     ProposedRate: candidate.Request.Rate,
                     ProposedPeriodDays: candidate.Request.PeriodDays,
-                    Reason: $"External active funding offer exists (offerId={activeOffer.OfferId}); manager will not modify it. {candidate.RateSelectionSummary}",
+                    Reason: $"External active funding offer exists (offerId={externalOffers[0].OfferId}); manager will not modify it. {candidate.RateSelectionSummary}",
                     TimestampUtc: nowUtc
                 );
             }
 
-            return BuildManagedOfferDecision(candidate, activeOffer, nowUtc);
+            if (activeOffers.Count >= maxActiveOffers)
+            {
+                ClearLivePlacementWaitState(candidate.Symbol);
+                if (activeOffers.Count == 1)
+                {
+                    return BuildManagedOfferDecision(candidate, activeOffers[0], nowUtc);
+                }
+
+                return new FundingDecision(
+                    Action: "skip_active_offer_capacity_reached",
+                    IsDryRun: _options.DryRun,
+                    IsActionable: false,
+                    Symbol: candidate.Symbol,
+                    Currency: candidate.Currency,
+                    WalletType: candidate.WalletType,
+                    AvailableBalance: candidate.AvailableBalance,
+                    LendableBalance: candidate.LendableBalance,
+                    ProposedAmount: candidate.Request.Amount,
+                    ProposedRate: candidate.Request.Rate,
+                    ProposedPeriodDays: candidate.Request.PeriodDays,
+                    Reason: $"Managed active offer capacity reached for {candidate.Symbol} ({activeOffers.Count}/{maxActiveOffers}); additional parallel offers are blocked until one fills. {candidate.RateSelectionSummary}",
+                    TimestampUtc: nowUtc
+                );
+            }
+
+            return BuildAdditionalSlotPlacementDecision(candidate, activeOffers.Count, maxActiveOffers, nowUtc);
         }
 
         return BuildFreshPlacementDecision(candidate, nowUtc);
+    }
+
+    private FundingDecision BuildAdditionalSlotPlacementDecision(
+        FundingPlacementCandidate candidate,
+        int activeOfferCount,
+        int maxActiveOffers,
+        DateTime nowUtc)
+    {
+        ClearLivePlacementWaitState(candidate.Symbol);
+
+        var policy = ResolveLivePlacementPolicy(candidate);
+        var slotRequest = policy.PlaceImmediately
+            ? policy.TargetRequest
+            : policy.FallbackRequest;
+        var slotSummary = policy.PlaceImmediately
+            ? policy.TargetSummary
+            : policy.FallbackSummary;
+
+        return new FundingDecision(
+            Action: _options.DryRun ? "would_place_parallel_offer" : "place_parallel_offer",
+            IsDryRun: _options.DryRun,
+            IsActionable: true,
+            Symbol: candidate.Symbol,
+            Currency: candidate.Currency,
+            WalletType: candidate.WalletType,
+            AvailableBalance: candidate.AvailableBalance,
+            LendableBalance: candidate.LendableBalance,
+            ProposedAmount: slotRequest.Amount,
+            ProposedRate: slotRequest.Rate,
+            ProposedPeriodDays: slotRequest.PeriodDays,
+            Reason: _options.DryRun
+                ? $"Dry-run additional parallel managed offer slot {activeOfferCount + 1}/{maxActiveOffers}. parallel_mode={(policy.PlaceImmediately ? "target" : "fallback")} {slotSummary}"
+                : $"Additional managed offer slot {activeOfferCount + 1}/{maxActiveOffers} should be submitted. parallel_mode={(policy.PlaceImmediately ? "target" : "fallback")} {slotSummary}",
+            TimestampUtc: nowUtc
+        );
     }
 
     private FundingDecision BuildFreshPlacementDecision(FundingPlacementCandidate candidate, DateTime nowUtc)
@@ -995,12 +1038,17 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         switch (decision.Action)
         {
             case "place":
+            case "place_parallel_offer":
             case "place_after_wait_fallback":
             {
                 if (candidate is null)
                 {
                     return CreateLocalActionResult(
-                        action: decision.Action == "place_after_wait_fallback" ? "submit_offer_after_wait_fallback" : "submit_offer",
+                        action: decision.Action == "place_after_wait_fallback"
+                            ? "submit_offer_after_wait_fallback"
+                            : decision.Action == "place_parallel_offer"
+                                ? "submit_parallel_offer"
+                                : "submit_offer",
                         success: false,
                         symbol: decision.Symbol,
                         offerId: null,
@@ -4033,6 +4081,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             MotorMaxWaitMinutesNormalRegime: profile?.MotorMaxWaitMinutesNormalRegime ?? _options.MotorMaxWaitMinutesNormalRegime,
             MotorMaxWaitMinutesHotRegime: profile?.MotorMaxWaitMinutesHotRegime ?? _options.MotorMaxWaitMinutesHotRegime,
             ManagedOfferFallbackCarryForwardMinutes: profile?.ManagedOfferFallbackCarryForwardMinutes ?? _options.ManagedOfferFallbackCarryForwardMinutes,
+            MaxActiveOffersPerSymbol: profile?.MaxActiveOffersPerSymbol ?? _options.MaxActiveOffersPerSymbol,
             OpportunisticMaxWaitMinutesLowRegime: profile?.OpportunisticMaxWaitMinutesLowRegime ?? _options.OpportunisticMaxWaitMinutesLowRegime,
             OpportunisticMaxWaitMinutesNormalRegime: profile?.OpportunisticMaxWaitMinutesNormalRegime ?? _options.OpportunisticMaxWaitMinutesNormalRegime,
             OpportunisticMaxWaitMinutesHotRegime: profile?.OpportunisticMaxWaitMinutesHotRegime ?? _options.OpportunisticMaxWaitMinutesHotRegime,
@@ -4048,13 +4097,14 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var settings = ResolveSymbolSettings(symbol);
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} maxActive={MaxActive} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
                 settings.ReserveAmount,
                 settings.MinOfferAmount,
                 settings.MaxOfferAmount,
+                settings.MaxActiveOffersPerSymbol,
                 settings.LiveRateMode,
                 settings.LivePlacementPolicyMode,
                 settings.ManagedOfferTargetMode,
@@ -4221,6 +4271,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         int MotorMaxWaitMinutesNormalRegime,
         int MotorMaxWaitMinutesHotRegime,
         int ManagedOfferFallbackCarryForwardMinutes,
+        int MaxActiveOffersPerSymbol,
         int OpportunisticMaxWaitMinutesLowRegime,
         int OpportunisticMaxWaitMinutesNormalRegime,
         int OpportunisticMaxWaitMinutesHotRegime,
