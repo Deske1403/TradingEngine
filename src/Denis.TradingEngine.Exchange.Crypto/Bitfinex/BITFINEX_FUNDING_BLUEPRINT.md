@@ -521,6 +521,10 @@ Status:
     - `slotIndex=N/M`
     - `liveSplit=Motor:X/Opportunistic:Y`
   - shadow summaries mirror the same live split shape so `live vs shadow` comparison stays readable
+  - if live capacity grows above `2`, slot counts no longer stay hardcoded:
+    - first slot still stays `Motor`
+    - second slot still prefers `Opportunistic`
+    - any additional slots are distributed by `MotorAllocationFraction` / `OpportunisticAllocationFraction`
 - the shadow layer now also supports a third bucket:
   - `Sniper`
   - small allocation fraction

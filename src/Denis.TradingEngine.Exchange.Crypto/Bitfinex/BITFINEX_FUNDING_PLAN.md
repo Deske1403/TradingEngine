@@ -1330,6 +1330,20 @@ Practical meaning:
 - when capital and capacity allow a second slot, runtime can promote that slot into `Opportunistic`
 - shadow summaries now mirror the same slot split shape so `live vs shadow` is easier to compare
 
+Live split now also generalizes beyond the `1+1` case:
+
+- if `MaxActiveOffersPerSymbol` grows above `2`, slot counts no longer stay hardcoded
+- runtime now derives `Motor` vs `Opportunistic` slot counts from the configured allocation fractions
+- first slot still stays `Motor`
+- second slot still prefers `Opportunistic` when that bucket is enabled
+- any additional slots are distributed by the configured `MotorAllocationFraction` / `OpportunisticAllocationFraction`
+
+Practical meaning:
+
+- this keeps the original `Motor first, Opportunistic second` behavior for `2` slots
+- but avoids wasting future larger-capacity setups on a fixed `1 Motor + 1 Opportunistic` shape
+- live sizing is now ready for higher-capacity experiments without changing the slot planner again
+
 `MotorWaitFallback` behavior:
 
 - keep the current live rate selection as the target
