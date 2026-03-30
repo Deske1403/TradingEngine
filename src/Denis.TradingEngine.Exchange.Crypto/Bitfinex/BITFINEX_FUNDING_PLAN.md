@@ -1295,6 +1295,12 @@ Practical meaning:
 - this is the first live capital-scaling slice beyond the single-offer assumption
 - fresh returned capital can now deploy into another bounded managed slot instead of waiting for the first active offer to finish
 - scaling stays intentionally conservative because capacity is explicit and small
+- shadow action/session telemetry is now also slot-aware:
+  - open capacity no longer collapses into generic `ambiguous_state`
+  - shadow can now distinguish:
+    - `would_place_parallel_offer`
+    - `would_wait_parallel_then_fallback`
+    - `would_keep_active_offer_capacity_full`
 
 `MotorWaitFallback` behavior:
 

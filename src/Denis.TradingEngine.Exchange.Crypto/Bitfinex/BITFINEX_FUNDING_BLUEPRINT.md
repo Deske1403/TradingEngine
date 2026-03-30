@@ -503,6 +503,12 @@ Status:
 - this is the first real live capital-deployment step beyond the one-offer baseline:
   - returned capital no longer has to sit idle just because one managed offer is still waiting
   - scaling stays bounded and explicit instead of flooding the order book
+- shadow analysis is now also multi-offer aware:
+  - it no longer treats `2/2` managed slots as a generic ambiguous state
+  - it can now show:
+    - open parallel slot ready
+    - open parallel slot waiting/fallback
+    - capacity-full keep state
 - the shadow layer now also supports a third bucket:
   - `Sniper`
   - small allocation fraction

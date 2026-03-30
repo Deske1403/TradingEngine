@@ -3425,23 +3425,66 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     {
         var symbolSettings = ResolveSymbolSettings(plan.Symbol);
         var fallbackRate = ResolveFallbackRate(plan, bucket);
+        var maxActiveOffers = Math.Max(1, symbolSettings.MaxActiveOffersPerSymbol);
         var activeOffer = activeOffers.Count == 1 ? activeOffers[0] : null;
         var deadlineUtc = bucket.MaxWaitMinutes > 0
             ? plan.TimestampUtc.AddMinutes(bucket.MaxWaitMinutes)
             : (DateTime?)null;
 
-        if (activeOffers.Count > 1)
+        if (activeOffers.Count >= maxActiveOffers && !(activeOffers.Count == 1 && maxActiveOffers == 1))
         {
             return CreateShadowAction(
                 plan,
                 bucket,
-                action: "would_hold_ambiguous_state",
+                action: "would_keep_active_offer_capacity_full",
                 isActionable: false,
                 fallbackRate: fallbackRate,
                 decisionDeadlineUtc: deadlineUtc,
                 activeOffers: activeOffers,
-                reason: $"Multiple active offers exist for {plan.Symbol}; shadow layer would not mutate ambiguous state.",
-                summary: $"{bucket.Bucket} would hold because multiple active offers exist.");
+                reason: $"Managed active offer capacity is full for {plan.Symbol} ({activeOffers.Count}/{maxActiveOffers}); shadow layer would keep current offers and wait for a slot to free up.",
+                summary: $"{bucket.Bucket} would keep active offers because capacity {activeOffers.Count}/{maxActiveOffers} is full.");
+        }
+
+        if (activeOffers.Count > 0)
+        {
+            if (string.Equals(bucket.Bucket, "Motor", StringComparison.OrdinalIgnoreCase))
+            {
+                return CreateShadowAction(
+                    plan,
+                    bucket,
+                    action: "would_place_parallel_offer",
+                    isActionable: true,
+                    fallbackRate: fallbackRate,
+                    decisionDeadlineUtc: null,
+                    activeOffers: activeOffers,
+                    reason: $"Motor bucket sees an open managed slot for {plan.Symbol} ({activeOffers.Count + 1}/{maxActiveOffers}) and would deploy another parallel offer immediately.",
+                    summary: $"{bucket.Bucket} would place parallel slot {activeOffers.Count + 1}/{maxActiveOffers} now at {bucket.TargetRate:E6}.");
+            }
+
+            if (string.Equals(plan.Regime, "HOT", StringComparison.OrdinalIgnoreCase))
+            {
+                return CreateShadowAction(
+                    plan,
+                    bucket,
+                    action: "would_place_parallel_offer",
+                    isActionable: true,
+                    fallbackRate: fallbackRate,
+                    decisionDeadlineUtc: null,
+                    activeOffers: activeOffers,
+                    reason: $"{bucket.Bucket} bucket sees an open managed slot for {plan.Symbol} ({activeOffers.Count + 1}/{maxActiveOffers}) and a HOT regime, so it would place another parallel offer immediately.",
+                    summary: $"{bucket.Bucket} would place parallel slot {activeOffers.Count + 1}/{maxActiveOffers} because the regime is HOT.");
+            }
+
+            return CreateShadowAction(
+                plan,
+                bucket,
+                action: "would_wait_parallel_then_fallback",
+                isActionable: false,
+                fallbackRate: fallbackRate,
+                decisionDeadlineUtc: deadlineUtc,
+                activeOffers: activeOffers,
+                reason: $"{bucket.Bucket} bucket sees an open managed slot for {plan.Symbol} ({activeOffers.Count + 1}/{maxActiveOffers}) but would still wait for a better rate before using fallback {bucket.FallbackBucket ?? "Motor"}.",
+                summary: $"{bucket.Bucket} would wait up to {bucket.MaxWaitMinutes}m before using parallel fallback slot {activeOffers.Count + 1}/{maxActiveOffers}.");
         }
 
         var targetRequest = BuildShadowTargetRequest(plan.Symbol, bucket, symbolSettings);
@@ -3816,10 +3859,13 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         return action switch
         {
             "would_place_now" => "ready_now",
+            "would_place_parallel_offer" => "ready_parallel",
             "would_wait_for_better_rate" => "waiting",
             "would_wait_then_fallback" => "waiting_fallback",
+            "would_wait_parallel_then_fallback" => "waiting_parallel_fallback",
             "would_reprice_active_offer" => "reprice_ready",
             "would_keep_active_offer" => "aligned_with_live_offer",
+            "would_keep_active_offer_capacity_full" => "capacity_full",
             _ => "observing"
         };
     }
