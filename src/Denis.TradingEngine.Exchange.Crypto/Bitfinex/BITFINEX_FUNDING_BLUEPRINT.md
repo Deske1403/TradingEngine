@@ -509,6 +509,18 @@ Status:
     - open parallel slot ready
     - open parallel slot waiting/fallback
     - capacity-full keep state
+- live runtime now also supports the first deterministic `Motor + Opportunistic` split:
+  - live slot budget is recalculated from lendable balance, `MinOfferAmount`, active offers, and `MaxActiveOffersPerSymbol`
+  - if only one live slot exists, it always belongs to `Motor`
+  - if two live slots exist and `Opportunistic` is enabled:
+    - slot `1/2` is `Motor`
+    - slot `2/2` is `Opportunistic`
+  - `Sniper` still does not consume live capital in this slice
+  - live reasons now emit:
+    - `slotRole=Motor|Opportunistic`
+    - `slotIndex=N/M`
+    - `liveSplit=Motor:X/Opportunistic:Y`
+  - shadow summaries mirror the same live split shape so `live vs shadow` comparison stays readable
 - the shadow layer now also supports a third bucket:
   - `Sniper`
   - small allocation fraction
@@ -550,6 +562,10 @@ Status:
 - the shadow layer now also emits explicit action policy, so we can measure the next safe promotion step before lowering reserve and re-enabling live re-entry
 - the shadow layer now also keeps short-lived stateful sessions so `wait -> fallback -> placed/closed` can be observed as a coherent mini-journey instead of isolated rows
 - `Sniper` is now added as the third shadow-only bucket so `Motor / Opportunistic / Sniper` can be compared in the same runtime telemetry
+- live runtime now also promotes the first deterministic split:
+  - baseline slot stays `Motor`
+  - second live slot can become `Opportunistic`
+  - `Sniper` remains shadow-only
 
 ### Step 6. Measure Before Expanding
 

@@ -1302,6 +1302,34 @@ Practical meaning:
     - `would_wait_parallel_then_fallback`
     - `would_keep_active_offer_capacity_full`
 
+Live runtime now also supports explicit slot-role planning through `Live Capital Split v1`.
+
+`Live Capital Split v1` behavior:
+
+- live slot budget is recalculated from:
+  - current lendable balance
+  - per-symbol `MinOfferAmount`
+  - current active managed offers
+  - `MaxActiveOffersPerSymbol`
+- `Sniper` remains shadow-only and does not consume live slots
+- if only `1` live slot is available, it always belongs to `Motor`
+- if `2` live slots are available and `Opportunistic` is enabled:
+  - slot `1/2` is `Motor`
+  - slot `2/2` is `Opportunistic`
+- live reasons now emit explicit slot metadata:
+  - `slotRole=Motor`
+  - `slotRole=Opportunistic`
+  - `slotIndex=N/M`
+- live/shadow summaries also emit the effective split:
+  - `liveSplit=Motor:X/Opportunistic:Y`
+
+Practical meaning:
+
+- live `Motor` and `Opportunistic` are no longer only pricing labels; they now claim deterministic slot budget
+- when capital is scarce, `Motor` keeps first priority
+- when capital and capacity allow a second slot, runtime can promote that slot into `Opportunistic`
+- shadow summaries now mirror the same slot split shape so `live vs shadow` is easier to compare
+
 `MotorWaitFallback` behavior:
 
 - keep the current live rate selection as the target
@@ -1335,6 +1363,7 @@ Practical meaning:
 - fresh live entries can now express the blueprint path `Opportunistic -> Motor fallback`
 - managed active-offer repricing still stays on the separate `ManagedOfferPolicyMode` path
 - this is the next narrow live bridge from shadow planning into real capital behavior
+- with `Live Capital Split v1`, this role is now also the explicit second live slot when balance and capacity allow it
 
 Shadow planning now also supports a third measurement-only bucket:
 
