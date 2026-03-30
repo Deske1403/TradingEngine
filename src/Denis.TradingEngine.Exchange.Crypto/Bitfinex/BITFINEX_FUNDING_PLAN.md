@@ -1633,3 +1633,22 @@ Offer lifecycle is already tracked and partially persisted, but full funding acc
 - reconciliation between offer closure and resulting productive funding state
 
 That is the point where the engine moves from "offer automation" to "complete funding business accounting".
+
+## Live Sniper Promotion v1
+
+Current status:
+
+- `Sniper` is no longer strictly shadow-only in code
+- a new live promotion gate allows a very small `Sniper` footprint when explicitly enabled in config
+- the live slot planner still protects the baseline:
+  - `Motor` stays first
+  - `Opportunistic` stays second
+  - `Sniper` only joins as the highest slot when capacity is already larger than two
+
+Current boundary:
+
+- this is still a test feature
+- it should be enabled deliberately in local runtime config, not assumed as the default production stance
+- fallback remains conservative:
+  - `Sniper -> Opportunistic`
+  - or `Sniper -> Motor` when no opportunistic lane exists

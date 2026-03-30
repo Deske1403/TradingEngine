@@ -619,6 +619,13 @@ Status:
 - it is intentionally not promoted into live mutation yet
 - next promotion rule stays the same:
   - only after repeated live cycles show that the measured `Sniper` edge is real
+- first live promotion gate now also exists:
+  - disabled by default
+  - when enabled, `Sniper` can consume a small live slot only after `Motor` and `Opportunistic` are already available
+  - current live planner keeps the promotion intentionally narrow:
+    - at most one live `Sniper` slot
+    - fallback path is `Sniper -> Opportunistic -> Motor` when the symbol profile supports it
+  - this keeps `Sniper` as a controlled test feature rather than a full live default
 
 ## What We Should Avoid
 

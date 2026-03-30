@@ -541,8 +541,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ProposedRate: slotRequest.Rate,
             ProposedPeriodDays: slotRequest.PeriodDays,
             Reason: _options.DryRun
-                ? $"Dry-run additional managed offer slot should be submitted. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} parallel_mode={(policy.PlaceImmediately ? "target" : "fallback")} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {slotSummary}"
-                : $"Additional managed offer slot should be submitted. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} parallel_mode={(policy.PlaceImmediately ? "target" : "fallback")} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {slotSummary}",
+                ? $"Dry-run additional managed offer slot should be submitted. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} parallel_mode={(policy.PlaceImmediately ? "target" : "fallback")} liveSplit={DescribeLiveSplit(slotPlan)} {slotSummary}"
+                : $"Additional managed offer slot should be submitted. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} parallel_mode={(policy.PlaceImmediately ? "target" : "fallback")} liveSplit={DescribeLiveSplit(slotPlan)} {slotSummary}",
             TimestampUtc: nowUtc,
             SlotRole: slotRole,
             SlotIndex: slotIndex,
@@ -582,8 +582,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedRate: policy.TargetRequest.Rate,
                 ProposedPeriodDays: policy.TargetRequest.PeriodDays,
                 Reason: _options.DryRun
-                    ? $"Dry-run funding recommendation generated from market snapshot and funding wallet availability. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {policy.TargetSummary}"
-                    : $"Funding offer should be submitted. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {policy.TargetSummary}",
+                    ? $"Dry-run funding recommendation generated from market snapshot and funding wallet availability. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {policy.TargetSummary}"
+                    : $"Funding offer should be submitted. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {policy.TargetSummary}",
                 TimestampUtc: nowUtc,
                 SlotRole: slotRole,
                 SlotIndex: slotIndex,
@@ -608,8 +608,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedRate: policy.TargetRequest.Rate,
                 ProposedPeriodDays: policy.TargetRequest.PeriodDays,
                 Reason: isNewState
-                    ? $"Starting live wait window for target funding rate until {waitState.DeadlineUtc:O}. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {policy.TargetSummary} fallback={policy.FallbackSummary}"
-                    : $"Waiting for target funding rate until {waitState.DeadlineUtc:O} ({Math.Ceiling(waitRemaining.TotalMinutes):F0}m remaining). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {policy.TargetSummary} fallback={policy.FallbackSummary}",
+                    ? $"Starting live wait window for target funding rate until {waitState.DeadlineUtc:O}. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {policy.TargetSummary} fallback={policy.FallbackSummary}"
+                    : $"Waiting for target funding rate until {waitState.DeadlineUtc:O} ({Math.Ceiling(waitRemaining.TotalMinutes):F0}m remaining). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {policy.TargetSummary} fallback={policy.FallbackSummary}",
                 TimestampUtc: nowUtc,
                 SlotRole: slotRole,
                 SlotIndex: slotIndex,
@@ -630,8 +630,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ProposedRate: policy.FallbackRequest.Rate,
             ProposedPeriodDays: policy.FallbackRequest.PeriodDays,
             Reason: _options.DryRun
-                ? $"Dry-run fallback submit after wait budget expired at {waitState.DeadlineUtc:O}. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {policy.FallbackSummary}"
-                : $"Wait budget expired at {waitState.DeadlineUtc:O}; funding offer should fall back now. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {policy.FallbackSummary}",
+                ? $"Dry-run fallback submit after wait budget expired at {waitState.DeadlineUtc:O}. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {policy.FallbackSummary}"
+                : $"Wait budget expired at {waitState.DeadlineUtc:O}; funding offer should fall back now. slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {policy.FallbackSummary}",
             TimestampUtc: nowUtc,
             SlotRole: slotRole,
             SlotIndex: slotIndex,
@@ -692,7 +692,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedAmount: candidate.Request.Amount,
                 ProposedRate: candidate.Request.Rate,
                 ProposedPeriodDays: candidate.Request.PeriodDays,
-                Reason: $"Managed active offer capacity reached for {candidate.Symbol} ({activeOffers.Count}/{slotPlan.TotalSlotsNow}); additional parallel offers are blocked until one fills. slotRole=none slotIndex={activeOffers.Count}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {candidate.RateSelectionSummary}",
+                Reason: $"Managed active offer capacity reached for {candidate.Symbol} ({activeOffers.Count}/{slotPlan.TotalSlotsNow}); additional parallel offers are blocked until one fills. slotRole=none slotIndex={activeOffers.Count}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {candidate.RateSelectionSummary}",
                 TimestampUtc: nowUtc,
                 SlotIndex: activeOffers.Count,
                 SlotCount: slotPlan.TotalSlotsNow
@@ -703,7 +703,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
     {
         var normalizedMode = ResolveLivePlacementPolicyMode(candidate, slotRole);
         if (normalizedMode != "MOTORWAITFALLBACK" &&
-            normalizedMode != "OPPORTUNISTICWAITFALLBACK")
+            normalizedMode != "OPPORTUNISTICWAITFALLBACK" &&
+            normalizedMode != "SNIPERWAITFALLBACK")
         {
             return new FundingLivePlacementPolicy(
                 Mode: normalizedMode,
@@ -755,6 +756,35 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 PlaceImmediately: placeImmediately);
         }
 
+        if (normalizedMode == "SNIPERWAITFALLBACK")
+        {
+            var sniperRegime = string.Equals(regime, "LOW", StringComparison.OrdinalIgnoreCase)
+                ? "NORMAL"
+                : regime;
+            var targetRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.SniperRateMultiplier, candidate.SymbolSettings);
+            var targetRequest = candidate.Request with { Rate = targetRate };
+            var fallbackBucket = ResolveManagedFallbackBucketName(candidate, "Sniper");
+            var fallbackMultiplier = string.Equals(fallbackBucket, "Opportunistic", StringComparison.OrdinalIgnoreCase)
+                ? candidate.SymbolSettings.OpportunisticRateMultiplier
+                : candidate.SymbolSettings.MotorRateMultiplier;
+            var fallbackRate = SelectShadowRate(safeAnchor, fallbackMultiplier, candidate.SymbolSettings);
+            var fallbackRequest = candidate.Request with { Rate = fallbackRate };
+            var maxWaitMinutes = GetSniperMaxWaitMinutes(sniperRegime, candidate.SymbolSettings);
+            var placeImmediately =
+                string.Equals(sniperRegime, "HOT", StringComparison.OrdinalIgnoreCase) ||
+                Math.Abs(targetRate - fallbackRate) < _options.ReplaceMinRateDelta;
+
+            return new FundingLivePlacementPolicy(
+                Mode: normalizedMode,
+                Regime: sniperRegime,
+                MaxWaitMinutes: maxWaitMinutes,
+                TargetRequest: targetRequest,
+                FallbackRequest: fallbackRequest,
+                TargetSummary: $"placement_policy=SniperWaitFallback regime={sniperRegime} wait={maxWaitMinutes}m target={targetRate:E6} sniperMult={candidate.SymbolSettings.SniperRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+                FallbackSummary: $"placement_policy=SniperWaitFallback regime={sniperRegime} wait={maxWaitMinutes}m fallback={fallbackRate:E6} fallbackBucket={fallbackBucket} fallbackMult={fallbackMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+                PlaceImmediately: placeImmediately);
+        }
+
         var motorMaxWaitMinutes = GetMotorMaxWaitMinutes(regime, candidate.SymbolSettings);
         var motorFallbackRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
         var motorFallbackRequest = candidate.Request with { Rate = motorFallbackRate };
@@ -775,6 +805,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
     private string ResolveLivePlacementPolicyMode(FundingPlacementCandidate candidate, string? slotRole)
     {
+        if (string.Equals(slotRole, "Sniper", StringComparison.OrdinalIgnoreCase))
+            return "SNIPERWAITFALLBACK";
+
         if (string.Equals(slotRole, "Opportunistic", StringComparison.OrdinalIgnoreCase))
             return "OPPORTUNISTICWAITFALLBACK";
 
@@ -800,9 +833,14 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 NormalizeLivePlacementPolicyMode(symbolSettings.LivePlacementPolicyMode),
                 "OPPORTUNISTICWAITFALLBACK",
                 StringComparison.OrdinalIgnoreCase);
+        var sniperEnabled =
+            symbolSettings.EnableLiveSniperPromotion &&
+            maxActiveOffers > 2 &&
+            totalSlotsNow > 2 &&
+            symbolSettings.SniperAllocationFraction > 0m;
 
-        var (desiredMotorSlots, desiredOpportunisticSlots) =
-            AllocateLiveSlotCounts(totalSlotsNow, opportunisticEnabled, symbolSettings);
+        var (desiredMotorSlots, desiredOpportunisticSlots, desiredSniperSlots) =
+            AllocateLiveSlotCounts(totalSlotsNow, opportunisticEnabled, sniperEnabled, symbolSettings);
 
         return new FundingLiveSlotPlan(
             SlotAmount: slotAmount,
@@ -811,77 +849,121 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             TotalSlotsNow: totalSlotsNow,
             DesiredMotorSlots: desiredMotorSlots,
             DesiredOpportunisticSlots: desiredOpportunisticSlots,
-            OpportunisticEnabled: opportunisticEnabled);
+            DesiredSniperSlots: desiredSniperSlots,
+            OpportunisticEnabled: opportunisticEnabled,
+            SniperEnabled: sniperEnabled);
     }
 
-    private static (int MotorSlots, int OpportunisticSlots) AllocateLiveSlotCounts(
+    private static (int MotorSlots, int OpportunisticSlots, int SniperSlots) AllocateLiveSlotCounts(
         int totalSlotsNow,
         bool opportunisticEnabled,
+        bool sniperEnabled,
         FundingSymbolRuntimeSettings symbolSettings)
     {
         if (totalSlotsNow <= 0)
-            return (0, 0);
+            return (0, 0, 0);
 
-        if (!opportunisticEnabled || totalSlotsNow == 1)
-            return (totalSlotsNow, 0);
+        if (totalSlotsNow == 1)
+            return (1, 0, 0);
 
-        if (totalSlotsNow == 2)
-            return (1, 1);
+        if (!opportunisticEnabled && !sniperEnabled)
+            return (totalSlotsNow, 0, 0);
 
-        var motorFraction = Math.Max(0m, symbolSettings.MotorAllocationFraction);
-        var opportunisticFraction = Math.Max(0m, symbolSettings.OpportunisticAllocationFraction);
-        var totalFraction = motorFraction + opportunisticFraction;
-        if (totalFraction <= 0m)
-            return (totalSlotsNow - 1, 1);
-
-        var idealMotorSlots = totalSlotsNow * (motorFraction / totalFraction);
-        var idealOpportunisticSlots = totalSlotsNow * (opportunisticFraction / totalFraction);
-
-        var desiredMotorSlots = Math.Max(1, (int)decimal.Floor(idealMotorSlots));
-        var desiredOpportunisticSlots = Math.Max(1, (int)decimal.Floor(idealOpportunisticSlots));
-        var allocated = desiredMotorSlots + desiredOpportunisticSlots;
-
-        if (allocated > totalSlotsNow)
+        if (!sniperEnabled)
         {
-            var overflow = allocated - totalSlotsNow;
-            if (desiredMotorSlots >= desiredOpportunisticSlots)
-                desiredMotorSlots = Math.Max(1, desiredMotorSlots - overflow);
-            else
-                desiredOpportunisticSlots = Math.Max(1, desiredOpportunisticSlots - overflow);
-        }
-        else if (allocated < totalSlotsNow)
-        {
-            var remaining = totalSlotsNow - allocated;
-            var motorRemainder = idealMotorSlots - decimal.Floor(idealMotorSlots);
-            var opportunisticRemainder = idealOpportunisticSlots - decimal.Floor(idealOpportunisticSlots);
+            if (totalSlotsNow == 2)
+                return (1, 1, 0);
 
-            while (remaining > 0)
+            var motorFraction = Math.Max(0m, symbolSettings.MotorAllocationFraction);
+            var opportunisticFraction = Math.Max(0m, symbolSettings.OpportunisticAllocationFraction);
+            var totalFraction = motorFraction + opportunisticFraction;
+            if (totalFraction <= 0m)
+                return (totalSlotsNow - 1, 1, 0);
+
+            var idealMotorSlots = totalSlotsNow * (motorFraction / totalFraction);
+            var idealOpportunisticSlots = totalSlotsNow * (opportunisticFraction / totalFraction);
+
+            var desiredMotorSlots = Math.Max(1, (int)decimal.Floor(idealMotorSlots));
+            var desiredOpportunisticSlots = Math.Max(1, (int)decimal.Floor(idealOpportunisticSlots));
+            var allocated = desiredMotorSlots + desiredOpportunisticSlots;
+
+            if (allocated > totalSlotsNow)
             {
-                if (motorRemainder >= opportunisticRemainder)
-                    desiredMotorSlots++;
+                var overflow = allocated - totalSlotsNow;
+                if (desiredMotorSlots >= desiredOpportunisticSlots)
+                    desiredMotorSlots = Math.Max(1, desiredMotorSlots - overflow);
                 else
-                    desiredOpportunisticSlots++;
-
-                remaining--;
+                    desiredOpportunisticSlots = Math.Max(1, desiredOpportunisticSlots - overflow);
             }
+            else if (allocated < totalSlotsNow)
+            {
+                var remaining = totalSlotsNow - allocated;
+                var motorRemainder = idealMotorSlots - decimal.Floor(idealMotorSlots);
+                var opportunisticRemainder = idealOpportunisticSlots - decimal.Floor(idealOpportunisticSlots);
+
+                while (remaining > 0)
+                {
+                    if (motorRemainder >= opportunisticRemainder)
+                        desiredMotorSlots++;
+                    else
+                        desiredOpportunisticSlots++;
+
+                    remaining--;
+                }
+            }
+
+            if (desiredMotorSlots + desiredOpportunisticSlots != totalSlotsNow)
+            {
+                desiredMotorSlots = Math.Max(1, totalSlotsNow - desiredOpportunisticSlots);
+                desiredOpportunisticSlots = Math.Max(1, totalSlotsNow - desiredMotorSlots);
+            }
+
+            if (desiredMotorSlots + desiredOpportunisticSlots > totalSlotsNow)
+            {
+                var overflow = desiredMotorSlots + desiredOpportunisticSlots - totalSlotsNow;
+                if (desiredMotorSlots > desiredOpportunisticSlots)
+                    desiredMotorSlots = Math.Max(1, desiredMotorSlots - overflow);
+                else
+                    desiredOpportunisticSlots = Math.Max(1, desiredOpportunisticSlots - overflow);
+            }
+
+            return (desiredMotorSlots, desiredOpportunisticSlots, 0);
         }
 
-        if (desiredMotorSlots + desiredOpportunisticSlots != totalSlotsNow)
-        {
-            desiredMotorSlots = Math.Max(1, totalSlotsNow - desiredOpportunisticSlots);
-            desiredOpportunisticSlots = Math.Max(1, totalSlotsNow - desiredMotorSlots);
-        }
+        var desiredSniperSlots = totalSlotsNow >= 3 ? 1 : 0;
+        var remainingSlots = Math.Max(0, totalSlotsNow - desiredSniperSlots);
+        if (remainingSlots <= 1)
+            return (remainingSlots, 0, desiredSniperSlots);
 
-        if (desiredMotorSlots + desiredOpportunisticSlots > totalSlotsNow)
+        if (!opportunisticEnabled)
+            return (remainingSlots, 0, desiredSniperSlots);
+
+        var motorFractionWithSniper = Math.Max(0m, symbolSettings.MotorAllocationFraction);
+        var opportunisticFractionWithSniper = Math.Max(0m, symbolSettings.OpportunisticAllocationFraction);
+        var totalFractionWithSniper = motorFractionWithSniper + opportunisticFractionWithSniper;
+        if (totalFractionWithSniper <= 0m)
+            return (Math.Max(1, remainingSlots - 1), 1, desiredSniperSlots);
+
+        var idealMotorSlotsWithSniper = remainingSlots * (motorFractionWithSniper / totalFractionWithSniper);
+        var idealOpportunisticSlotsWithSniper = remainingSlots * (opportunisticFractionWithSniper / totalFractionWithSniper);
+        var desiredMotorSlotsWithSniper = Math.Max(1, (int)decimal.Floor(idealMotorSlotsWithSniper));
+        var desiredOpportunisticSlotsWithSniper = Math.Max(1, (int)decimal.Floor(idealOpportunisticSlotsWithSniper));
+        var allocatedWithSniper = desiredMotorSlotsWithSniper + desiredOpportunisticSlotsWithSniper;
+
+        if (allocatedWithSniper > remainingSlots)
         {
-            var overflow = desiredMotorSlots + desiredOpportunisticSlots - totalSlotsNow;
-            if (desiredMotorSlots > desiredOpportunisticSlots)
-                desiredMotorSlots = Math.Max(1, desiredMotorSlots - overflow);
+            var overflow = allocatedWithSniper - remainingSlots;
+            if (desiredMotorSlotsWithSniper >= desiredOpportunisticSlotsWithSniper)
+                desiredMotorSlotsWithSniper = Math.Max(1, desiredMotorSlotsWithSniper - overflow);
             else
-                desiredOpportunisticSlots = Math.Max(1, desiredOpportunisticSlots - overflow);
+                desiredOpportunisticSlotsWithSniper = Math.Max(1, desiredOpportunisticSlotsWithSniper - overflow);
+        }
+        else if (allocatedWithSniper < remainingSlots)
+        {
+            desiredMotorSlotsWithSniper += remainingSlots - allocatedWithSniper;
         }
 
-        return (desiredMotorSlots, desiredOpportunisticSlots);
+        return (desiredMotorSlotsWithSniper, desiredOpportunisticSlotsWithSniper, desiredSniperSlots);
     }
 
     private string? ResolveNextLiveSlotRole(
@@ -892,7 +974,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         if (slotPlan.TotalSlotsNow <= activeOffers.Count)
             return null;
 
-        var (activeMotorSlots, activeOpportunisticSlots) = ClassifyActiveSlotRoles(candidate, activeOffers, slotPlan);
+        var (activeMotorSlots, activeOpportunisticSlots, activeSniperSlots) = ClassifyActiveSlotRoles(candidate, activeOffers, slotPlan);
         if (activeOffers.Count == 1 &&
             slotPlan.DesiredOpportunisticSlots > 0 &&
             activeMotorSlots >= 1 &&
@@ -907,18 +989,22 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         if (activeOpportunisticSlots < slotPlan.DesiredOpportunisticSlots)
             return "Opportunistic";
 
+        if (activeSniperSlots < slotPlan.DesiredSniperSlots)
+            return "Sniper";
+
         return "Motor";
     }
 
-    private (int MotorSlots, int OpportunisticSlots) ClassifyActiveSlotRoles(
+    private (int MotorSlots, int OpportunisticSlots, int SniperSlots) ClassifyActiveSlotRoles(
         FundingPlacementCandidate candidate,
         IReadOnlyList<FundingOfferInfo> activeOffers,
         FundingLiveSlotPlan slotPlan)
     {
         var assignments = BuildManagedActiveSlotAssignments(candidate, activeOffers, slotPlan);
         var motorOffers = assignments.Count(assignment => string.Equals(assignment.Role, "Motor", StringComparison.OrdinalIgnoreCase));
-        var opportunisticOffers = assignments.Count - motorOffers;
-        return (motorOffers, opportunisticOffers);
+        var opportunisticOffers = assignments.Count(assignment => string.Equals(assignment.Role, "Opportunistic", StringComparison.OrdinalIgnoreCase));
+        var sniperOffers = assignments.Count(assignment => string.Equals(assignment.Role, "Sniper", StringComparison.OrdinalIgnoreCase));
+        return (motorOffers, opportunisticOffers, sniperOffers);
     }
 
     private IReadOnlyList<FundingManagedActiveSlotAssignment> BuildManagedActiveSlotAssignments(
@@ -934,7 +1020,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ThenBy(static offer => offer.OfferId, StringComparer.Ordinal)
             .ToArray();
 
-        if (slotPlan.DesiredOpportunisticSlots <= 0 || !slotPlan.OpportunisticEnabled)
+        if ((slotPlan.DesiredOpportunisticSlots <= 0 || !slotPlan.OpportunisticEnabled) &&
+            (slotPlan.DesiredSniperSlots <= 0 || !slotPlan.SniperEnabled))
         {
             return orderedOffers
                 .Select((offer, index) => new FundingManagedActiveSlotAssignment(offer, "Motor", index + 1))
@@ -945,25 +1032,55 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         {
             var offer = orderedOffers[0];
             var motorTargetRate = ResolveLivePlacementPolicy(candidate, "Motor").TargetRequest.Rate;
-            var opportunisticTargetRate = ResolveLivePlacementPolicy(candidate, "Opportunistic").TargetRequest.Rate;
             var motorDistance = Math.Abs(offer.Rate - motorTargetRate);
-            var opportunisticDistance = Math.Abs(offer.Rate - opportunisticTargetRate);
-            var role = opportunisticDistance < motorDistance ? "Opportunistic" : "Motor";
-            var slotIndex = string.Equals(role, "Opportunistic", StringComparison.OrdinalIgnoreCase)
-                ? Math.Max(1, slotPlan.DesiredMotorSlots + 1)
-                : 1;
+            var bestDistance = motorDistance;
+            var role = "Motor";
+            var slotIndex = 1;
+
+            if (slotPlan.DesiredOpportunisticSlots > 0 && slotPlan.OpportunisticEnabled)
+            {
+                var opportunisticTargetRate = ResolveLivePlacementPolicy(candidate, "Opportunistic").TargetRequest.Rate;
+                var opportunisticDistance = Math.Abs(offer.Rate - opportunisticTargetRate);
+                if (opportunisticDistance < bestDistance)
+                {
+                    bestDistance = opportunisticDistance;
+                    role = "Opportunistic";
+                    slotIndex = Math.Max(1, slotPlan.DesiredMotorSlots + 1);
+                }
+            }
+
+            if (slotPlan.DesiredSniperSlots > 0 && slotPlan.SniperEnabled)
+            {
+                var sniperTargetRate = ResolveLivePlacementPolicy(candidate, "Sniper").TargetRequest.Rate;
+                var sniperDistance = Math.Abs(offer.Rate - sniperTargetRate);
+                if (sniperDistance < bestDistance)
+                {
+                    role = "Sniper";
+                    slotIndex = Math.Max(1, slotPlan.DesiredMotorSlots + slotPlan.DesiredOpportunisticSlots + 1);
+                }
+            }
+
             return new[] { new FundingManagedActiveSlotAssignment(offer, role, slotIndex) };
         }
 
-        var opportunisticLookup = activeOffers
+        var rankedOffers = activeOffers
             .OrderByDescending(static offer => offer.Rate)
             .ThenByDescending(static offer => offer.CreatedUtc ?? DateTime.MinValue)
-            .Take(Math.Min(slotPlan.DesiredOpportunisticSlots, activeOffers.Count))
+            .ToArray();
+
+        var sniperLookup = rankedOffers
+            .Take(Math.Min(slotPlan.DesiredSniperSlots, rankedOffers.Length))
+            .Select(static offer => offer.OfferId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var opportunisticLookup = rankedOffers
+            .Where(offer => !sniperLookup.Contains(offer.OfferId))
+            .Take(Math.Min(slotPlan.DesiredOpportunisticSlots, rankedOffers.Length - sniperLookup.Count))
             .Select(static offer => offer.OfferId)
             .ToHashSet(StringComparer.Ordinal);
 
         var motorAssignments = orderedOffers
-            .Where(offer => !opportunisticLookup.Contains(offer.OfferId))
+            .Where(offer => !opportunisticLookup.Contains(offer.OfferId) && !sniperLookup.Contains(offer.OfferId))
             .Select((offer, index) => new FundingManagedActiveSlotAssignment(offer, "Motor", index + 1))
             .ToList();
 
@@ -974,10 +1091,17 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .Select((offer, index) => new FundingManagedActiveSlotAssignment(offer, "Opportunistic", motorAssignments.Count + index + 1))
             .ToList();
 
+        var sniperAssignments = orderedOffers
+            .Where(offer => sniperLookup.Contains(offer.OfferId))
+            .OrderByDescending(static offer => offer.Rate)
+            .ThenBy(static offer => offer.CreatedUtc ?? DateTime.MinValue)
+            .Select((offer, index) => new FundingManagedActiveSlotAssignment(offer, "Sniper", motorAssignments.Count + opportunisticAssignments.Count + index + 1))
+            .ToList();
+
         return motorAssignments
             .Concat(opportunisticAssignments)
-            .OrderByDescending(assignment => string.Equals(assignment.Role, "Opportunistic", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(assignment => assignment.SlotIndex)
+            .Concat(sniperAssignments)
+            .OrderByDescending(assignment => assignment.SlotIndex)
             .ToArray();
     }
 
@@ -1055,7 +1179,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedAmount: managedTargetRequest.Amount,
                 ProposedRate: managedTargetRequest.Rate,
                 ProposedPeriodDays: managedTargetRequest.PeriodDays,
-                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {replaceReason} {managedTargetSummary}",
+                Reason: $"Existing managed offer should be replaced (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {replaceReason} {managedTargetSummary}",
                 TimestampUtc: nowUtc,
                 TargetOfferId: activeOffer.OfferId,
                 SlotRole: slotRole,
@@ -1080,7 +1204,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ProposedAmount: managedTargetRequest.Amount,
             ProposedRate: managedTargetRequest.Rate,
             ProposedPeriodDays: managedTargetRequest.PeriodDays,
-            Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {replaceReason} {managedTargetSummary}",
+            Reason: $"Managed active offer remains within thresholds (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {replaceReason} {managedTargetSummary}",
             TimestampUtc: nowUtc,
             TargetOfferId: activeOffer.OfferId,
             SlotRole: slotRole,
@@ -1102,7 +1226,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         if (normalizedMode != "KEEPTHENMOTORFALLBACK")
             return null;
 
-        var (fallbackRequest, fallbackSummary) = ResolveManagedOfferFallbackTarget(candidate);
+        var (fallbackRequest, fallbackSummary) = ResolveManagedOfferFallbackTarget(candidate, slotRole);
         var rateDelta = activeOffer.Rate - fallbackRequest.Rate;
         if (rateDelta < _options.ReplaceMinRateDelta)
             return null;
@@ -1122,7 +1246,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ProposedAmount: fallbackRequest.Amount,
                 ProposedRate: fallbackRequest.Rate,
                 ProposedPeriodDays: fallbackRequest.PeriodDays,
-                Reason: $"Managed offer is still inside fallback wait window (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} age={age.TotalSeconds:F0}s threshold={minAge.TotalSeconds:F0}s {managedTargetSummary} {fallbackSummary}",
+                Reason: $"Managed offer is still inside fallback wait window (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} age={age.TotalSeconds:F0}s threshold={minAge.TotalSeconds:F0}s {managedTargetSummary} {fallbackSummary}",
                 TimestampUtc: nowUtc,
                 TargetOfferId: activeOffer.OfferId,
                 SlotRole: slotRole,
@@ -1146,7 +1270,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             ProposedAmount: fallbackRequest.Amount,
             ProposedRate: fallbackRequest.Rate,
             ProposedPeriodDays: fallbackRequest.PeriodDays,
-            Reason: $"Managed offer should fall back to Motor repricing (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit=Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots} {replaceReason} {managedTargetSummary} {fallbackSummary}",
+            Reason: $"Managed offer should fall back via {ResolveManagedFallbackBucketName(candidate, slotRole)} repricing (offerId={activeOffer.OfferId}). slotRole={slotRole} slotIndex={slotIndex}/{slotPlan.TotalSlotsNow} liveSplit={DescribeLiveSplit(slotPlan)} {replaceReason} {managedTargetSummary} {fallbackSummary}",
             TimestampUtc: nowUtc,
             TargetOfferId: activeOffer.OfferId,
             SlotRole: slotRole,
@@ -3620,7 +3744,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                     : $"No shadow bucket actionable. lendable={lendable:F2} reserve={symbolSettings.ReserveAmount:F2} minOffer={symbolSettings.MinOfferAmount:F2} regime={regime}"
                 : string.Join("; ", buckets.Select(bucket =>
                     $"{bucket.Bucket} amt={bucket.AllocationAmount:F2} rate={bucket.TargetRate:E6} wait={bucket.MaxWaitMinutes}m")) +
-                  $" liveSlots={liveSlotPlan.TotalSlotsNow} split={liveSlotPlan.DesiredMotorSlots}/{liveSlotPlan.DesiredOpportunisticSlots}";
+                  $" liveSlots={liveSlotPlan.TotalSlotsNow} split={DescribeShadowSplit(liveSlotPlan)}";
 
             plans.Add(new FundingShadowPlan(
                 Symbol: symbol,
@@ -3972,7 +4096,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             $"{summary} amount={candidate.Request.Amount:F2} period={candidate.Request.PeriodDays}");
     }
 
-    private (FundingOfferRequest Request, string Summary) ResolveManagedOfferFallbackTarget(FundingPlacementCandidate candidate)
+    private (FundingOfferRequest Request, string Summary) ResolveManagedOfferFallbackTarget(FundingPlacementCandidate candidate, string slotRole)
     {
         var askRate = candidate.Ticker.AskRate > 0m ? candidate.Ticker.AskRate : 0m;
         var bidRate = candidate.Ticker.BidRate > 0m ? candidate.Ticker.BidRate : 0m;
@@ -3982,10 +4106,14 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 ? bidRate
                 : candidate.SymbolSettings.MinDailyRate;
 
-        var fallbackRate = SelectShadowRate(marketRate, candidate.SymbolSettings.MotorRateMultiplier, candidate.SymbolSettings);
+        var fallbackBucket = ResolveManagedFallbackBucketName(candidate, slotRole);
+        var fallbackMultiplier = string.Equals(fallbackBucket, "Opportunistic", StringComparison.OrdinalIgnoreCase)
+            ? candidate.SymbolSettings.OpportunisticRateMultiplier
+            : candidate.SymbolSettings.MotorRateMultiplier;
+        var fallbackRate = SelectShadowRate(marketRate, fallbackMultiplier, candidate.SymbolSettings);
         return (
             candidate.Request with { Rate = fallbackRate },
-            $"managed_policy=KeepThenMotorFallback fallback={fallbackRate:E6} anchor={marketRate:E6} motorMult={candidate.SymbolSettings.MotorRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6}");
+            $"managed_policy=KeepThenMotorFallback fallback={fallbackRate:E6} fallbackBucket={fallbackBucket} anchor={marketRate:E6} fallbackMult={fallbackMultiplier:F3} ask={askRate:E6} bid={bidRate:E6}");
     }
 
     private void LogShadowActions(IReadOnlyList<FundingShadowAction> shadowActions)
@@ -4298,6 +4426,27 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             .ToUpperInvariant();
     }
 
+    private static string DescribeLiveSplit(FundingLiveSlotPlan slotPlan)
+        => $"Motor:{slotPlan.DesiredMotorSlots}/Opportunistic:{slotPlan.DesiredOpportunisticSlots}/Sniper:{slotPlan.DesiredSniperSlots}";
+
+    private static string DescribeShadowSplit(FundingLiveSlotPlan slotPlan)
+        => $"{slotPlan.DesiredMotorSlots}/{slotPlan.DesiredOpportunisticSlots}/{slotPlan.DesiredSniperSlots}";
+
+    private static string ResolveManagedFallbackBucketName(FundingPlacementCandidate candidate, string slotRole)
+    {
+        if (string.Equals(slotRole, "Sniper", StringComparison.OrdinalIgnoreCase) &&
+            candidate.SymbolSettings.OpportunisticAllocationFraction > 0m &&
+            string.Equals(
+                NormalizeLivePlacementPolicyMode(candidate.SymbolSettings.LivePlacementPolicyMode),
+                "OPPORTUNISTICWAITFALLBACK",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "Opportunistic";
+        }
+
+        return "Motor";
+    }
+
     private static string NormalizeManagedOfferPolicyMode(string? policyMode)
     {
         if (string.IsNullOrWhiteSpace(policyMode))
@@ -4422,6 +4571,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             MotorAllocationFraction: profile?.MotorAllocationFraction ?? _options.MotorAllocationFraction,
             OpportunisticAllocationFraction: profile?.OpportunisticAllocationFraction ?? _options.OpportunisticAllocationFraction,
             SniperAllocationFraction: profile?.SniperAllocationFraction ?? _options.SniperAllocationFraction,
+            EnableLiveSniperPromotion: profile?.EnableLiveSniperPromotion ?? _options.EnableLiveSniperPromotion,
             MotorRateMultiplier: profile?.MotorRateMultiplier ?? _options.MotorRateMultiplier,
             OpportunisticRateMultiplier: profile?.OpportunisticRateMultiplier ?? _options.OpportunisticRateMultiplier,
             SniperRateMultiplier: profile?.SniperRateMultiplier ?? _options.SniperRateMultiplier,
@@ -4446,17 +4596,19 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             var settings = ResolveSymbolSettings(symbol);
             var liveSplitMode = settings.MaxActiveOffersPerSymbol <= 1
                 ? "MotorOnly"
-                : settings.OpportunisticAllocationFraction > 0m &&
-                  string.Equals(
-                      NormalizeLivePlacementPolicyMode(settings.LivePlacementPolicyMode),
-                      "OPPORTUNISTICWAITFALLBACK",
-                      StringComparison.OrdinalIgnoreCase)
-                    ? settings.MaxActiveOffersPerSymbol > 2
-                        ? "MotorFirst+OpportunisticWeighted"
-                        : "MotorFirst+OpportunisticSecond"
-                    : "MotorFirst";
+                : settings.EnableLiveSniperPromotion && settings.MaxActiveOffersPerSymbol > 2
+                    ? "Motor+Opportunistic+SniperPromotion"
+                    : settings.OpportunisticAllocationFraction > 0m &&
+                      string.Equals(
+                          NormalizeLivePlacementPolicyMode(settings.LivePlacementPolicyMode),
+                          "OPPORTUNISTICWAITFALLBACK",
+                          StringComparison.OrdinalIgnoreCase)
+                        ? settings.MaxActiveOffersPerSymbol > 2
+                            ? "MotorFirst+OpportunisticWeighted"
+                            : "MotorFirst+OpportunisticSecond"
+                        : "MotorFirst";
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} maxActive={MaxActive} liveSplit={LiveSplit} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} maxActive={MaxActive} liveSplit={LiveSplit} sniperLive={SniperLive} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -4465,6 +4617,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.MaxOfferAmount,
                 settings.MaxActiveOffersPerSymbol,
                 liveSplitMode,
+                settings.EnableLiveSniperPromotion,
                 settings.LiveRateMode,
                 settings.LivePlacementPolicyMode,
                 settings.ManagedOfferTargetMode,
@@ -4624,6 +4777,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal MotorAllocationFraction,
         decimal OpportunisticAllocationFraction,
         decimal SniperAllocationFraction,
+        bool EnableLiveSniperPromotion,
         decimal MotorRateMultiplier,
         decimal OpportunisticRateMultiplier,
         decimal SniperRateMultiplier,
@@ -4656,7 +4810,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         int TotalSlotsNow,
         int DesiredMotorSlots,
         int DesiredOpportunisticSlots,
-        bool OpportunisticEnabled);
+        int DesiredSniperSlots,
+        bool OpportunisticEnabled,
+        bool SniperEnabled);
 
     private sealed record FundingLivePlacementWaitState(
         string Symbol,

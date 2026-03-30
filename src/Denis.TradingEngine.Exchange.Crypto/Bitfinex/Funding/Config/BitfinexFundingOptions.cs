@@ -96,6 +96,8 @@ public sealed class BitfinexFundingOptions
 
     public decimal SniperAllocationFraction { get; set; } = 0.10m;
 
+    public bool EnableLiveSniperPromotion { get; set; }
+
     public decimal MotorRateMultiplier { get; set; } = 0.97m;
 
     public decimal OpportunisticRateMultiplier { get; set; } = 1.08m;
