@@ -534,6 +534,10 @@ Status:
 - `Sniper` remains shadow-only for now:
   - it does not mutate live funding offers
   - it exists so we can observe spike-capture intent before allowing it to touch capital
+- once `Sniper` is promoted into live in a bounded way, the next useful promotion is adaptive ceiling control:
+  - `Sniper` should not stay hard-capped at the same fixed maximum as the baseline buckets
+  - if the visible funding market offers more, `Sniper` should be allowed to float its own cap upward inside an explicit safety ceiling
+  - fallback still remains conservative and collapses back into `Opportunistic` / `Motor`
 - managed active offers now also support `KeepThenMotorFallback`:
   - keep the current live offer while it is still young
   - once the replace-age window passes, allow a controlled repricing down toward the `Motor` fallback target

@@ -44,6 +44,10 @@ public sealed class BitfinexFundingSymbolProfile
 
     public bool? EnableLiveSniperPromotion { get; set; }
 
+    public bool? EnableAdaptiveSniperMaxRate { get; set; }
+
+    public decimal? SniperAdaptiveMaxDailyRate { get; set; }
+
     public decimal? MotorRateMultiplier { get; set; }
 
     public decimal? OpportunisticRateMultiplier { get; set; }

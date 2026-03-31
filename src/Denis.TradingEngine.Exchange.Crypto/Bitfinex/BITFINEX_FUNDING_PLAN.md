@@ -1652,3 +1652,21 @@ Current boundary:
 - fallback remains conservative:
   - `Sniper -> Opportunistic`
   - or `Sniper -> Motor` when no opportunistic lane exists
+
+## Adaptive Sniper Max Rate v1
+
+Current status:
+
+- `Sniper` no longer has to stop at the same static daily-rate cap as the baseline buckets
+- a new optional adaptive ceiling allows `Sniper` to lift its own max rate up toward the currently visible market ceiling
+- baseline lanes stay conservative:
+  - `Motor` and `Opportunistic` still honor the normal symbol rate band
+  - only `Sniper` can use the adaptive cap
+
+Current boundary:
+
+- this is still bounded by an explicit safety ceiling in config
+- it is meant to react to real market opportunity, not to remove all rate discipline
+- fallback remains conservative:
+  - `Sniper` target can float higher
+  - `Sniper` fallback still collapses into `Opportunistic` or `Motor`

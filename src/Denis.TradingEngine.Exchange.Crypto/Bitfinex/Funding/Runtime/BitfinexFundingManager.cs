@@ -761,7 +761,9 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             var sniperRegime = string.Equals(regime, "LOW", StringComparison.OrdinalIgnoreCase)
                 ? "NORMAL"
                 : regime;
-            var targetRate = SelectShadowRate(safeAnchor, candidate.SymbolSettings.SniperRateMultiplier, candidate.SymbolSettings);
+            var sniperAnchor = ResolveSniperAnchorRate(askRate, bidRate, frrRate, safeAnchor);
+            var sniperCap = ResolveSniperAdaptiveMaxDailyRate(askRate, bidRate, frrRate, candidate.SymbolSettings);
+            var targetRate = SelectShadowRate(sniperAnchor, candidate.SymbolSettings.SniperRateMultiplier, candidate.SymbolSettings, sniperCap);
             var targetRequest = candidate.Request with { Rate = targetRate };
             var fallbackBucket = ResolveManagedFallbackBucketName(candidate, "Sniper");
             var fallbackMultiplier = string.Equals(fallbackBucket, "Opportunistic", StringComparison.OrdinalIgnoreCase)
@@ -780,7 +782,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 MaxWaitMinutes: maxWaitMinutes,
                 TargetRequest: targetRequest,
                 FallbackRequest: fallbackRequest,
-                TargetSummary: $"placement_policy=SniperWaitFallback regime={sniperRegime} wait={maxWaitMinutes}m target={targetRate:E6} sniperMult={candidate.SymbolSettings.SniperRateMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
+                TargetSummary: $"placement_policy=SniperWaitFallback regime={sniperRegime} wait={maxWaitMinutes}m target={targetRate:E6} sniperMult={candidate.SymbolSettings.SniperRateMultiplier:F3} adaptive={candidate.SymbolSettings.EnableAdaptiveSniperMaxRate} adaptiveCap={sniperCap:E6} anchor={sniperAnchor:E6} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
                 FallbackSummary: $"placement_policy=SniperWaitFallback regime={sniperRegime} wait={maxWaitMinutes}m fallback={fallbackRate:E6} fallbackBucket={fallbackBucket} fallbackMult={fallbackMultiplier:F3} ask={askRate:E6} bid={bidRate:E6} frr={FormatRate(frrRate)}",
                 PlaceImmediately: placeImmediately);
         }
@@ -3726,11 +3728,21 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
 
                 if (sniperTargetAmount > 0m)
                 {
+                    var sniperAdaptiveCap = ResolveSniperAdaptiveMaxDailyRate(
+                        ticker.AskRate > 0m ? ticker.AskRate : 0m,
+                        ticker.BidRate > 0m ? ticker.BidRate : 0m,
+                        ticker.Frr.GetValueOrDefault() > 0m ? ticker.Frr.GetValueOrDefault() : 0m,
+                        symbolSettings);
+                    var sniperAdaptiveAnchor = ResolveSniperAnchorRate(
+                        ticker.AskRate > 0m ? ticker.AskRate : 0m,
+                        ticker.BidRate > 0m ? ticker.BidRate : 0m,
+                        ticker.Frr.GetValueOrDefault() > 0m ? ticker.Frr.GetValueOrDefault() : 0m,
+                        marketRate);
                     buckets.Add(new FundingShadowBucket(
                         Bucket: "Sniper",
                         AllocationAmount: sniperTargetAmount,
                         AllocationFraction: normalizedSniperFraction,
-                        TargetRate: SelectShadowRate(marketRate, symbolSettings.SniperRateMultiplier, symbolSettings),
+                        TargetRate: SelectShadowRate(sniperAdaptiveAnchor, symbolSettings.SniperRateMultiplier, symbolSettings, sniperAdaptiveCap),
                         TargetPeriodDays: 2,
                         MaxWaitMinutes: GetSniperMaxWaitMinutes(regime, symbolSettings),
                         Role: "spike_capture",
@@ -4326,11 +4338,35 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         };
     }
 
-    private decimal SelectShadowRate(decimal marketRate, decimal multiplier, FundingSymbolRuntimeSettings symbolSettings)
+    private decimal SelectShadowRate(decimal marketRate, decimal multiplier, FundingSymbolRuntimeSettings symbolSettings, decimal? maxRateOverride = null)
     {
         var safeMarketRate = marketRate > 0m ? marketRate : symbolSettings.MinDailyRate;
         var scaled = safeMarketRate * multiplier;
-        return Math.Clamp(scaled, symbolSettings.MinDailyRate, symbolSettings.MaxDailyRate);
+        var effectiveMaxRate = Math.Max(symbolSettings.MinDailyRate, maxRateOverride ?? symbolSettings.MaxDailyRate);
+        return Math.Clamp(scaled, symbolSettings.MinDailyRate, effectiveMaxRate);
+    }
+
+    private decimal ResolveSniperAdaptiveMaxDailyRate(
+        decimal askRate,
+        decimal bidRate,
+        decimal frrRate,
+        FundingSymbolRuntimeSettings symbolSettings)
+    {
+        var baseMaxRate = Math.Max(symbolSettings.MinDailyRate, symbolSettings.MaxDailyRate);
+        if (!symbolSettings.EnableAdaptiveSniperMaxRate)
+            return baseMaxRate;
+
+        var configuredMaxRate = Math.Max(baseMaxRate, symbolSettings.SniperAdaptiveMaxDailyRate);
+        var marketCap = Math.Max(askRate, Math.Max(bidRate, frrRate));
+        if (marketCap <= 0m)
+            return baseMaxRate;
+
+        return Math.Max(baseMaxRate, Math.Min(configuredMaxRate, marketCap));
+    }
+
+    private static decimal ResolveSniperAnchorRate(decimal askRate, decimal bidRate, decimal frrRate, decimal safeAnchor)
+    {
+        return Math.Max(safeAnchor, Math.Max(bidRate, frrRate));
     }
 
     private (decimal Rate, string Summary) SelectLiveRate(FundingTickerSnapshot ticker, FundingSymbolRuntimeSettings symbolSettings)
@@ -4572,6 +4608,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
             OpportunisticAllocationFraction: profile?.OpportunisticAllocationFraction ?? _options.OpportunisticAllocationFraction,
             SniperAllocationFraction: profile?.SniperAllocationFraction ?? _options.SniperAllocationFraction,
             EnableLiveSniperPromotion: profile?.EnableLiveSniperPromotion ?? _options.EnableLiveSniperPromotion,
+            EnableAdaptiveSniperMaxRate: profile?.EnableAdaptiveSniperMaxRate ?? _options.EnableAdaptiveSniperMaxRate,
+            SniperAdaptiveMaxDailyRate: profile?.SniperAdaptiveMaxDailyRate ?? _options.SniperAdaptiveMaxDailyRate,
             MotorRateMultiplier: profile?.MotorRateMultiplier ?? _options.MotorRateMultiplier,
             OpportunisticRateMultiplier: profile?.OpportunisticRateMultiplier ?? _options.OpportunisticRateMultiplier,
             SniperRateMultiplier: profile?.SniperRateMultiplier ?? _options.SniperRateMultiplier,
@@ -4608,7 +4646,7 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                             : "MotorFirst+OpportunisticSecond"
                         : "MotorFirst";
             _log.Information(
-                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} maxActive={MaxActive} liveSplit={LiveSplit} sniperLive={SniperLive} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
+                "[BFX-FUND] symbol-profile symbol={Symbol} enabled={Enabled} pause={Pause} reserve={Reserve:F2} amountBand={MinAmount:F2}..{MaxAmount:F2} maxActive={MaxActive} liveSplit={LiveSplit} sniperLive={SniperLive} sniperAdaptive={SniperAdaptive} sniperAdaptiveCap={SniperAdaptiveCap:E6} rateMode={RateMode} placementPolicy={PlacementPolicy} managedTarget={ManagedTarget} managedPolicy={ManagedPolicy} managedCarry={ManagedCarry}m rateBand={MinRate:E6}..{MaxRate:E6} liveMult={Low:F3}/{Normal:F3}/{Hot:F3} shadowAlloc={MotorAlloc:F3}/{OppAlloc:F3}/{SniperAlloc:F3} shadowRateMult={MotorRate:F3}/{OppRate:F3}/{SniperRate:F3} motorWait={MotorLow}/{MotorNormal}/{MotorHot} oppWait={OppLow}/{OppNormal}/{OppHot} sniperWait={SniperLow}/{SniperNormal}/{SniperHot}",
                 settings.Symbol,
                 settings.Enabled,
                 settings.PauseNewOffers,
@@ -4618,6 +4656,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
                 settings.MaxActiveOffersPerSymbol,
                 liveSplitMode,
                 settings.EnableLiveSniperPromotion,
+                settings.EnableAdaptiveSniperMaxRate,
+                settings.SniperAdaptiveMaxDailyRate,
                 settings.LiveRateMode,
                 settings.LivePlacementPolicyMode,
                 settings.ManagedOfferTargetMode,
@@ -4778,6 +4818,8 @@ public sealed class BitfinexFundingManager : IAsyncDisposable
         decimal OpportunisticAllocationFraction,
         decimal SniperAllocationFraction,
         bool EnableLiveSniperPromotion,
+        bool EnableAdaptiveSniperMaxRate,
+        decimal SniperAdaptiveMaxDailyRate,
         decimal MotorRateMultiplier,
         decimal OpportunisticRateMultiplier,
         decimal SniperRateMultiplier,

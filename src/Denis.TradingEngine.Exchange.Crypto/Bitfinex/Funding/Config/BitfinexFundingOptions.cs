@@ -98,6 +98,10 @@ public sealed class BitfinexFundingOptions
 
     public bool EnableLiveSniperPromotion { get; set; }
 
+    public bool EnableAdaptiveSniperMaxRate { get; set; }
+
+    public decimal SniperAdaptiveMaxDailyRate { get; set; } = 0.00050m;
+
     public decimal MotorRateMultiplier { get; set; } = 0.97m;
 
     public decimal OpportunisticRateMultiplier { get; set; } = 1.08m;
