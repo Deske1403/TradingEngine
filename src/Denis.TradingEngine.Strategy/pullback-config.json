@@ -371,7 +371,7 @@
         "MinTimeBetweenSignalsSec": 45,
         "DebugLogging": false,
         "MicroFilterEnabled": true,
-        "MicroFilterMinSlope5Bps": 0.0,
+        "MicroFilterMinSlope5Bps": 0.10,
         "MicroFilterMinSlope20Bps": -0.25,
         "MicroFilterMinAtrFractionOfPrice": 1e-05,
         "MicroFilterMaxSpreadBps": 18.0,
