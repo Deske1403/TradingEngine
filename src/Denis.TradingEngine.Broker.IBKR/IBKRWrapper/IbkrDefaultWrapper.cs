@@ -71,7 +71,11 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
         public void managedAccounts(string accountsList) => Console.WriteLine($"[ACCOUNTS] {accountsList}");
 
 
-        public void connectAck() => Console.WriteLine("[INFO] connectAck (socket connected)");
+        public void connectAck()
+        {
+            Console.WriteLine("[INFO] connectAck (socket connected)");
+            Log.Information("[IBKR] connectAck received");
+        }
 
         // Glavni error (bez timestampa)
         public void error(int id, int errorCode, string errorMsg, string advancedOrderRejectJson)
@@ -107,9 +111,16 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
         }
         
         void EWrapper.error(Exception e)
-            => Console.WriteLine($"[IB-EX] {e.GetType().Name}: {e.Message}");
+        {
+            Console.WriteLine($"[IB-EX] {e.GetType().Name}: {e.Message}");
+            Log.Error(e, "[IB-EX] {Type}: {Msg}", e.GetType().Name, e.Message);
+        }
 
-        void EWrapper.error(string str) => Console.WriteLine($"[IB-ERRSTR] {str}");
+        void EWrapper.error(string str)
+        {
+            Console.WriteLine($"[IB-ERRSTR] {str}");
+            Log.Error("[IB-ERRSTR] {Msg}", str);
+        }
 
    
         // tickSize (decimal) → tvoja int-varijanta (za log)
@@ -1193,6 +1204,7 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
         {
             try { ConnectionClosed?.Invoke(); } catch { /* swallow */ }
             Console.WriteLine("Konekcija je zatvorena.");
+            Log.Warning("[IBKR] connectionClosed received from wrapper");
         }
         public void execDetailsEnd(int reqId)
         {

@@ -9,11 +9,14 @@ using System.Threading.Tasks;
 using IBApi;
 using Denis.TradingEngine.Core.Trading;
 using Denis.TradingEngine.Broker.IBKR; // IbkrInstrumentMap, ISubscriptionService
+using Denis.TradingEngine.Logging;
+using Serilog;
 
 namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
 {
     public sealed class IbkrSession : IDisposable
     {
+        private static readonly ILogger Log = AppLog.ForContext<IbkrSession>();
         private readonly IbkrDefaultWrapper _wrapper;
         private readonly EReaderSignal _signal;
         private readonly EClientSocket _client;
@@ -72,54 +75,105 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
             _lastPort = port;
             _lastClientId = clientId;
 
+            string? lastError = null;
+            var connectStartedUtc = DateTime.UtcNow;
+
+            void OnError(int id, int errorCode, string errorMsg)
+            {
+                lastError = $"id={id}, code={errorCode}, msg={errorMsg}";
+            }
+
+            _wrapper.ErrorReceived += OnError;
+
+            Log.Information(
+                "[IBKR-CONNECT] Starting connect host={Host} port={Port} clientId={ClientId}",
+                host,
+                port,
+                clientId);
+
             _client.eConnect(host, port, clientId);
-            if (!_client.IsConnected())
-                throw new InvalidOperationException("IBKR not connected.");
-
-            _reader = new EReader(_client, _signal);
-            _reader.Start();
-
-            _pumpThread = new Thread(() =>
+            try
             {
-                while (_client.IsConnected())
+                var socketConnected = await WaitUntilConnectedAsync(TimeSpan.FromSeconds(8), ct);
+                if (!socketConnected)
                 {
-                    _signal.waitForSignal();
-                    _reader?.processMsgs();
+                    var details = lastError is null ? "no IB error received yet" : lastError;
+                    throw new InvalidOperationException(
+                        $"IBKR socket did not enter connected state for {host}:{port} clientId={clientId}. LastError={details}");
                 }
-            })
-            {
-                IsBackground = true,
-                Name = "IBKR-Pump"
-            };
-            _pumpThread.Start();
 
-            // zatraži nextValidId i server time
-            _client.reqIds(-1);
-            _client.reqCurrentTime();
+                Log.Information(
+                    "[IBKR-CONNECT] Socket connected host={Host} port={Port} clientId={ClientId} elapsedMs={ElapsedMs}",
+                    host,
+                    port,
+                    clientId,
+                    (DateTime.UtcNow - connectStartedUtc).TotalMilliseconds);
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var timeout = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
+                _reader = new EReader(_client, _signal);
+                _reader.Start();
 
-            var nextIdTask = _tcsNextValidId.Task;
-            var timeTask = _tcsCurrentTime.Task;
+                _pumpThread = new Thread(() =>
+                {
+                    while (_client.IsConnected())
+                    {
+                        _signal.waitForSignal();
+                        _reader?.processMsgs();
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "IBKR-Pump"
+                };
+                _pumpThread.Start();
 
-            var waitAll = Task.WhenAll(nextIdTask, timeTask);
-            var completed = await Task.WhenAny(waitAll, timeout);
+                Log.Information("[IBKR-CONNECT] Requesting init signals nextValidId + currentTime");
 
-            if (completed == timeout)
-            {
-                if (!nextIdTask.IsCompleted && !timeTask.IsCompleted)
-                    throw new TimeoutException("Timed out waiting for both nextValidId and currentTime.");
+                // zatraži nextValidId i server time
+                _client.reqIds(-1);
+                _client.reqCurrentTime();
 
-                Console.WriteLine(
-                    "[WARN] Timed out waiting for one of the init signals. Continuing with what we have");
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var timeout = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
+
+                var nextIdTask = _tcsNextValidId.Task;
+                var timeTask = _tcsCurrentTime.Task;
+
+                var waitAll = Task.WhenAll(nextIdTask, timeTask);
+                var completed = await Task.WhenAny(waitAll, timeout);
+
+                if (completed == timeout)
+                {
+                    Log.Warning(
+                        "[IBKR-CONNECT] Init signal timeout host={Host} port={Port} clientId={ClientId} nextValidIdReceived={HasNextId} currentTimeReceived={HasCurrentTime} lastError={LastError}",
+                        host,
+                        port,
+                        clientId,
+                        nextIdTask.IsCompleted,
+                        timeTask.IsCompleted,
+                        lastError ?? "n/a");
+
+                    if (!nextIdTask.IsCompleted && !timeTask.IsCompleted)
+                        throw new TimeoutException(
+                            $"Timed out waiting for nextValidId/currentTime from IBKR. LastError={lastError ?? "n/a"}");
+
+                    Console.WriteLine(
+                        "[WARN] Timed out waiting for one of the init signals. Continuing with what we have");
+                }
+                else
+                {
+                    cts.Cancel();
+                    Log.Information(
+                        "[IBKR-CONNECT] Init handshake complete nextValidId={NextId} serverTime={ServerTime:O}",
+                        nextIdTask.Result,
+                        timeTask.Result);
+                }
+
+                _shouldReconnect = true;
             }
-            else
+            finally
             {
-                cts.Cancel();
+                _wrapper.ErrorReceived -= OnError;
             }
-
-            _shouldReconnect = true;
         }
 
         private void StartReconnectLoop()
@@ -150,6 +204,13 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
                             var port = _lastPort ?? 4002;
                             var clientId = _lastClientId ?? 1;
 
+                            Log.Warning(
+                                "[IBKR-RECONNECT] Attempt={Attempt} host={Host} port={Port} clientId={ClientId}",
+                                i + 1,
+                                host,
+                                port,
+                                clientId);
+
                             _client.eConnect(host, port, clientId);
 
                             if (_client.IsConnected())
@@ -174,6 +235,12 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
                                 _client.reqIds(-1);
                                 _client.reqCurrentTime();
 
+                                Log.Information(
+                                    "[IBKR-RECONNECT] Reconnected host={Host} port={Port} clientId={ClientId}",
+                                    host,
+                                    port,
+                                    clientId);
+
                                 try
                                 {
                                     Reconnected?.Invoke();
@@ -184,10 +251,20 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
 
                                 i = 0;
                             }
+                            else
+                            {
+                                Log.Warning(
+                                    "[IBKR-RECONNECT] Socket still disconnected after attempt={Attempt} host={Host} port={Port} clientId={ClientId}",
+                                    i + 1,
+                                    host,
+                                    port,
+                                    clientId);
+                            }
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Log.Warning(ex, "[IBKR-RECONNECT] Attempt failed");
                     }
 
                     var delay = delays[Math.Min(i, delays.Length - 1)];
@@ -209,6 +286,20 @@ namespace Denis.TradingEngine.Broker.IBKR.IBKRWrapper
 
         public int NextOrderId =>
             _tcsNextValidId.Task.IsCompleted ? _tcsNextValidId.Task.Result : -1;
+
+        private async Task<bool> WaitUntilConnectedAsync(TimeSpan timeout, CancellationToken ct)
+        {
+            var started = DateTime.UtcNow;
+            while (!ct.IsCancellationRequested && DateTime.UtcNow - started < timeout)
+            {
+                if (_client.IsConnected())
+                    return true;
+
+                await Task.Delay(100, ct);
+            }
+
+            return _client.IsConnected();
+        }
 
         // ------------------------------------------------------------
         // Legacy helpers

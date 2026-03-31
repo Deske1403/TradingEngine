@@ -20,6 +20,7 @@ using Denis.TradingEngine.Strategy.Trend;
 using Microsoft.Extensions.Configuration;
 // Crypto trading integration
 using Denis.TradingEngine.Exchange.Crypto.Trading;
+using System.Globalization;
 
 
 //dotnet publish -c Release -r win-x64 --self-contained true
@@ -54,6 +55,12 @@ internal class Program
 
         var mode = cfg.GetValue<string>("Mode", "Paper");
         var perSymbolBudgetUsd = cfg.GetValue<decimal>("PerSymbolBudgetUSD", 1000m);
+        var ibkrHost = cfg.GetValue<string>("Ibkr:Host", "127.0.0.1") ?? "127.0.0.1";
+        var ibkrPort = cfg.GetValue<int>("Ibkr:Port", 4001);
+        var ibkrClientId = cfg.GetValue<int>("Ibkr:ClientId", 1);
+        var ibkrConnectTimeoutSec = cfg.GetValue<int>("Ibkr:ConnectTimeoutSec", 8);
+        if (ibkrConnectTimeoutSec <= 0)
+            ibkrConnectTimeoutSec = 8;
 
         // fallback iz configa ako IBKR cash failuje u REAL modu
         var configuredStartingCashUsd = cfg.GetValue<decimal>("Risk:StartingCashUsd", perSymbolBudgetUsd);
@@ -64,6 +71,13 @@ internal class Program
         var tradingSettings = cfg.GetSection("Trading").Get<TradingSettings>() ?? new TradingSettings();
         var swinfConfig = cfg.GetSection("SwingTrading").Get<SwingTradingConfig>() ?? new SwingTradingConfig();
         var ibkrEodSkimOptions = cfg.GetSection("IbkrEodSkim").Get<IbkrEodSkimOptions>() ?? new IbkrEodSkimOptions();
+
+        log.Information(
+            "[IBKR-CONFIG] Host={Host} Port={Port} ClientId={ClientId} ConnectTimeoutSec={TimeoutSec}",
+            ibkrHost,
+            ibkrPort,
+            ibkrClientId,
+            ibkrConnectTimeoutSec);
 
         log.Information(
             "[EOD-SKIM-CONFIG] Enabled={Enabled} DryRun={DryRun} StartMinBeforeClose={StartMin} MaxRetries={MaxRetries} MinNetProfitUsd={MinNet:F2} ReasonTag={Tag}",
@@ -153,17 +167,25 @@ internal class Program
         var realIbClient = new RealIbkrClient(wrapper);
         using var session = new IbkrSession(wrapper);
 
-        Console.WriteLine("Povezivanje na IBKR");
+        Console.WriteLine($"Povezivanje na IBKR {ibkrHost}:{ibkrPort} clientId={ibkrClientId}");
         try
         {
-            await session.ConnectAsync("127.0.0.1", 4001, clientId: 1, cts.Token);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(ibkrConnectTimeoutSec + 35));
+
+            await session.ConnectAsync(ibkrHost, ibkrPort, ibkrClientId, connectCts.Token);
         }
         catch (Exception ex)
         {
-            log.Fatal($"[FATAL] Ne mogu da se poveÅ¾em: {ex.Message}");
+            log.Fatal(ex,
+                "[FATAL] Ne mogu da se povezem na IBKR. Host={Host} Port={Port} ClientId={ClientId} Msg={Msg}",
+                ibkrHost,
+                ibkrPort,
+                ibkrClientId,
+                ex.Message);
             return;
         }
-        Console.WriteLine("[OK] IBKR konekcija spremna.");
+        Console.WriteLine($"[OK] IBKR konekcija spremna ({ibkrHost}:{ibkrPort}, clientId={ibkrClientId}).");
 
         // Discord alert kad IBKR konekcija padne (runtime â€“ TWS/API crash, mreÅ¾a)
         wrapper.ConnectionClosed += () =>
@@ -182,6 +204,12 @@ internal class Program
         var ibNotConnectedAlertThrottle = TimeSpan.FromMinutes(5);
         wrapper.ErrorReceived += (id, errorCode, errorMsg) =>
         {
+            log.Warning(
+                "[IBKR][ERROR-EVENT] id={Id} code={Code} msg={Msg}",
+                id,
+                errorCode,
+                errorMsg);
+
             if (errorCode != 504)
                 return;
 
