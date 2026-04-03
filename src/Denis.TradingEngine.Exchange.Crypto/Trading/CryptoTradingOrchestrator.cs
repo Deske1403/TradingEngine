@@ -956,6 +956,72 @@ public sealed class CryptoTradingOrchestrator : IDisposable
             }
         }
 
+        if (!signal.ShouldEnter)
+        {
+            var symbol = signal.Symbol.Ticker;
+            var exitPosition = _positionBook.Get(symbol);
+            if (exitPosition is null || exitPosition.Quantity <= 0m)
+            {
+                _log.Information("[STRATEGY-EXIT] Ignoring exit signal for {Sym} - no open position", symbol);
+                MarkBlocked("no-position");
+                _ = LogSignalAsync(false, "no-position");
+                return;
+            }
+
+            lock (_sync)
+            {
+                if (_exitPending.Contains(symbol))
+                {
+                    MarkBlocked("exit-pending");
+                    _ = LogSignalAsync(false, "exit-pending");
+                    return;
+                }
+            }
+
+            var exitPx = signal.SuggestedLimitPrice ?? 0m;
+            if (exitPx <= 0m)
+            {
+                if (!TryGetQuote(symbol, now, out var exitQuote, out var exitReason))
+                {
+                    MarkBlocked("exit-liquidity");
+                    _ = LogSignalAsync(false, $"exit-liquidity:{exitReason}");
+                    return;
+                }
+
+                exitPx = exitQuote.Bid ?? exitQuote.Last ?? 0m;
+            }
+
+            if (exitPx <= 0m)
+            {
+                MarkBlocked("invalid-exit-price");
+                _ = LogSignalAsync(false, "invalid-exit-price");
+                return;
+            }
+
+            if (_orderService != null)
+            {
+                var activeExitBrokerOrderIds = _orders.Snapshot()
+                    .Where(po =>
+                        po.Req.Symbol.Ticker.Equals(symbol, StringComparison.OrdinalIgnoreCase) &&
+                        po.Req.IsExit &&
+                        !string.IsNullOrWhiteSpace(po.BrokerOrderId))
+                    .Select(po => po.BrokerOrderId!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var brokerId in activeExitBrokerOrderIds)
+                {
+                    _log.Information("[STRATEGY-EXIT-CANCEL] Canceling active exit before strategy exit: brokerId={BrokerId} sym={Sym}",
+                        brokerId, symbol);
+                    FireAndForgetCancel(brokerId, symbol);
+                }
+            }
+
+            SendExit(symbol, exitPosition.Quantity, exitPx, signal.Reason, corrPrefix: "exit-strategy");
+            _ = LogSignalAsync(true, null, exitPosition.Quantity, exitPosition.Quantity * exitPx);
+            return;
+        }
+
         // 0) GLOBAL STRATEGY RATE-LIMIT
         if (IsRateLimited(now, out var rlReason))
         {

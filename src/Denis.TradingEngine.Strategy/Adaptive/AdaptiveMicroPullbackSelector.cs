@@ -67,20 +67,13 @@ public sealed class AdaptiveMicroPullbackSelector : ITradingStrategy
         var now = q.TimestampUtc == default ? DateTime.UtcNow : q.TimestampUtc;
         UpdateMarketState(symbol, q, now);
 
-        if (_microPullbackStrategy != null && IsMicroPullbackEnabledForSymbol(symbol))
-        {
-            var microOwnsPosition = _microPullbackStrategy.IsManagingSymbol(symbol);
-            if (!microOwnsPosition)
-            {
-                _microPullbackStrategy.ObserveQuote(q);
-            }
-        }
+        var microEnabled = _microPullbackStrategy != null && IsMicroPullbackEnabledForSymbol(symbol);
+        var microOwnsSymbol = microEnabled && _microPullbackStrategy!.IsManagingSymbol(symbol);
 
         var strategy = SelectStrategy(symbol, q);
-        var microOwnsSymbol = _microPullbackStrategy?.IsManagingSymbol(symbol) == true;
         var shouldDispatchToMicro =
-            _microPullbackStrategy != null &&
-            ((IsMicroPullbackEnabledForSymbol(symbol) && strategy == StrategyType.MicroPullback) || microOwnsSymbol);
+            microEnabled &&
+            ((strategy == StrategyType.MicroPullback) || microOwnsSymbol);
 
         if (_microPullbackDryRun)
         {
@@ -89,6 +82,12 @@ public sealed class AdaptiveMicroPullbackSelector : ITradingStrategy
             {
                 LogMicroDispatch(symbol, q, strategy, true, microOwnsSymbol);
                 _microPullbackStrategy!.OnQuote(q);
+            }
+            else if (microEnabled && !microOwnsSymbol)
+            {
+                // Warm up internal fair-value / volatility state without double-processing
+                // the same quote when the symbol is actively dispatched to MicroPullback.
+                _microPullbackStrategy!.ObserveQuote(q);
             }
 
             return;
@@ -99,6 +98,11 @@ public sealed class AdaptiveMicroPullbackSelector : ITradingStrategy
             LogMicroDispatch(symbol, q, strategy, false, microOwnsSymbol);
             _microPullbackStrategy?.OnQuote(q);
             return;
+        }
+
+        if (microEnabled && !microOwnsSymbol)
+        {
+            _microPullbackStrategy!.ObserveQuote(q);
         }
 
         _pullbackStrategy.OnQuote(q);
