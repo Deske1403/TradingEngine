@@ -176,6 +176,411 @@ ORDER BY updated_utc DESC NULLS LAST, offer_id DESC;", new
         }
     }
 
+    public async Task<FundingPerformanceSnapshot?> GetPerformanceSnapshotAsync(
+        string exchange,
+        IReadOnlyList<string> symbols,
+        DateTime todayStartUtc,
+        DateTime yesterdayStartUtc,
+        DateTime rolling7dStartUtc,
+        DateTime monthStartUtc,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(exchange) || symbols.Count == 0)
+            return null;
+
+        const string sql = @"
+WITH book AS (
+    SELECT
+        exchange,
+        symbol,
+        status,
+        COALESCE(NULLIF(principal_deployed, 0), NULLIF(principal_amount, 0), 0) AS principal_basis,
+        COALESCE(net_interest, 0) AS net_interest,
+        last_payment_utc,
+        principal_returned_utc
+    FROM v_funding_book
+    WHERE exchange = @Exchange
+      AND symbol = ANY(@Symbols)
+),
+latest_wallets AS (
+    SELECT DISTINCT ON (wallet_type, currency)
+        wallet_type,
+        currency,
+        total,
+        available
+    FROM funding_wallet_snapshots
+    WHERE exchange = @Exchange
+      AND wallet_type IN ('funding', 'deposit')
+    ORDER BY wallet_type, currency, utc DESC
+),
+wallet_by_symbol AS (
+    SELECT
+        CONCAT('f', currency) AS symbol,
+        SUM(total) AS total_balance,
+        SUM(available) AS available_balance
+    FROM latest_wallets
+    GROUP BY currency
+),
+returns AS (
+    SELECT
+        symbol,
+        utc AS returned_utc
+    FROM funding_capital_events
+    WHERE exchange = @Exchange
+      AND symbol = ANY(@Symbols)
+      AND event_type = 'principal_returned'
+      AND utc >= @Rolling7dStartUtc
+),
+redeploy AS (
+    SELECT
+        r.symbol,
+        EXTRACT(EPOCH FROM (a.utc - r.returned_utc)) / 60.0 AS redeploy_minutes
+    FROM returns r
+    JOIN LATERAL (
+        SELECT utc
+        FROM funding_offer_actions a
+        WHERE a.exchange = @Exchange
+          AND a.symbol = r.symbol
+          AND a.utc >= r.returned_utc
+          AND COALESCE(a.dry_run, FALSE) = FALSE
+          AND COALESCE(a.is_actionable, TRUE) = TRUE
+          AND a.action IN ('submit_offer', 'submit_offer_after_wait_fallback')
+        ORDER BY a.utc
+        LIMIT 1
+    ) a ON TRUE
+),
+overall AS (
+    SELECT
+        COUNT(*) FILTER (WHERE status NOT ILIKE 'CLOSED%') AS active_cycles,
+        COUNT(*) FILTER (WHERE status ILIKE 'CLOSED%') AS closed_cycles,
+        COALESCE(SUM(principal_basis) FILTER (WHERE status NOT ILIKE 'CLOSED%'), 0) AS active_principal,
+        COALESCE(SUM(net_interest), 0) AS total_net_interest,
+        COALESCE(SUM(net_interest) FILTER (WHERE last_payment_utc >= @TodayStartUtc), 0) AS today_net_interest,
+        COALESCE(SUM(net_interest) FILTER (WHERE last_payment_utc >= @YesterdayStartUtc AND last_payment_utc < @TodayStartUtc), 0) AS yesterday_net_interest,
+        COALESCE(SUM(net_interest) FILTER (WHERE last_payment_utc >= @Rolling7dStartUtc), 0) AS rolling_7d_net_interest,
+        COALESCE(SUM(net_interest) FILTER (WHERE last_payment_utc >= @MonthStartUtc), 0) AS mtd_net_interest,
+        AVG(NULLIF(net_interest, 0)) FILTER (WHERE status ILIKE 'CLOSED%') AS avg_net_interest_closed_cycle,
+        MAX(last_payment_utc) AS last_payment_utc,
+        MAX(principal_returned_utc) AS last_principal_returned_utc
+    FROM book
+)
+SELECT
+    active_cycles AS ActiveCycles,
+    closed_cycles AS ClosedCycles,
+    active_principal AS ActivePrincipal,
+    COALESCE((SELECT SUM(total_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0) AS CurrentTotalBalance,
+    COALESCE((SELECT SUM(available_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0) AS CurrentAvailableBalance,
+    CASE
+        WHEN COALESCE((SELECT SUM(total_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0) > 0
+            THEN active_principal / NULLIF((SELECT SUM(total_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0)
+        ELSE 0
+    END AS UtilizationPct,
+    CASE
+        WHEN COALESCE((SELECT SUM(total_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0) > 0
+            THEN COALESCE((SELECT SUM(available_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0)
+                 / NULLIF((SELECT SUM(total_balance) FROM wallet_by_symbol WHERE symbol = ANY(@Symbols)), 0)
+        ELSE 0
+    END AS IdleCapitalPct,
+    today_net_interest AS TodayNetInterest,
+    yesterday_net_interest AS YesterdayNetInterest,
+    rolling_7d_net_interest AS Rolling7dNetInterest,
+    mtd_net_interest AS MonthToDateNetInterest,
+    total_net_interest AS TotalNetInterest,
+    avg_net_interest_closed_cycle AS AvgNetInterestClosedCycle,
+    last_payment_utc AS LastPaymentUtc,
+    last_principal_returned_utc AS LastPrincipalReturnedUtc,
+    COALESCE((SELECT AVG(redeploy_minutes) FROM redeploy), 0) AS AvgRedeployMinutesRolling7d,
+    CASE
+        WHEN active_principal > 0
+            THEN ((rolling_7d_net_interest / 7.0) / active_principal) * 365.0
+        ELSE 0
+    END AS Rolling7dSimpleApr
+FROM overall;
+
+WITH book AS (
+    SELECT
+        exchange,
+        symbol,
+        status,
+        COALESCE(NULLIF(principal_deployed, 0), NULLIF(principal_amount, 0), 0) AS principal_basis,
+        COALESCE(net_interest, 0) AS net_interest,
+        last_payment_utc,
+        principal_returned_utc
+    FROM v_funding_book
+    WHERE exchange = @Exchange
+      AND symbol = ANY(@Symbols)
+),
+latest_wallets AS (
+    SELECT DISTINCT ON (wallet_type, currency)
+        wallet_type,
+        currency,
+        total,
+        available
+    FROM funding_wallet_snapshots
+    WHERE exchange = @Exchange
+      AND wallet_type IN ('funding', 'deposit')
+    ORDER BY wallet_type, currency, utc DESC
+),
+wallet_by_symbol AS (
+    SELECT
+        CONCAT('f', currency) AS symbol,
+        SUM(total) AS total_balance,
+        SUM(available) AS available_balance
+    FROM latest_wallets
+    GROUP BY currency
+),
+returns AS (
+    SELECT
+        symbol,
+        utc AS returned_utc
+    FROM funding_capital_events
+    WHERE exchange = @Exchange
+      AND symbol = ANY(@Symbols)
+      AND event_type = 'principal_returned'
+      AND utc >= @Rolling7dStartUtc
+),
+redeploy AS (
+    SELECT
+        r.symbol,
+        EXTRACT(EPOCH FROM (a.utc - r.returned_utc)) / 60.0 AS redeploy_minutes
+    FROM returns r
+    JOIN LATERAL (
+        SELECT utc
+        FROM funding_offer_actions a
+        WHERE a.exchange = @Exchange
+          AND a.symbol = r.symbol
+          AND a.utc >= r.returned_utc
+          AND COALESCE(a.dry_run, FALSE) = FALSE
+          AND COALESCE(a.is_actionable, TRUE) = TRUE
+          AND a.action IN ('submit_offer', 'submit_offer_after_wait_fallback')
+        ORDER BY a.utc
+        LIMIT 1
+    ) a ON TRUE
+)
+SELECT
+    b.symbol AS Symbol,
+    COUNT(*) FILTER (WHERE b.status NOT ILIKE 'CLOSED%') AS ActiveCycles,
+    COUNT(*) FILTER (WHERE b.status ILIKE 'CLOSED%') AS ClosedCycles,
+    COALESCE(SUM(b.principal_basis) FILTER (WHERE b.status NOT ILIKE 'CLOSED%'), 0) AS ActivePrincipal,
+    COALESCE(MAX(w.total_balance), 0) AS CurrentTotalBalance,
+    COALESCE(MAX(w.available_balance), 0) AS CurrentAvailableBalance,
+    CASE
+        WHEN COALESCE(MAX(w.total_balance), 0) > 0
+            THEN COALESCE(SUM(b.principal_basis) FILTER (WHERE b.status NOT ILIKE 'CLOSED%'), 0) / NULLIF(MAX(w.total_balance), 0)
+        ELSE 0
+    END AS UtilizationPct,
+    CASE
+        WHEN COALESCE(MAX(w.total_balance), 0) > 0
+            THEN COALESCE(MAX(w.available_balance), 0) / NULLIF(MAX(w.total_balance), 0)
+        ELSE 0
+    END AS IdleCapitalPct,
+    COALESCE(SUM(b.net_interest) FILTER (WHERE b.last_payment_utc >= @TodayStartUtc), 0) AS TodayNetInterest,
+    COALESCE(SUM(b.net_interest) FILTER (WHERE b.last_payment_utc >= @YesterdayStartUtc AND b.last_payment_utc < @TodayStartUtc), 0) AS YesterdayNetInterest,
+    COALESCE(SUM(b.net_interest) FILTER (WHERE b.last_payment_utc >= @Rolling7dStartUtc), 0) AS Rolling7dNetInterest,
+    COALESCE(SUM(b.net_interest) FILTER (WHERE b.last_payment_utc >= @MonthStartUtc), 0) AS MonthToDateNetInterest,
+    COALESCE(SUM(b.net_interest), 0) AS TotalNetInterest,
+    MAX(b.last_payment_utc) AS LastPaymentUtc,
+    MAX(b.principal_returned_utc) AS LastPrincipalReturnedUtc,
+    COALESCE(AVG(r.redeploy_minutes), 0) AS AvgRedeployMinutesRolling7d,
+    CASE
+        WHEN COALESCE(SUM(b.principal_basis) FILTER (WHERE b.status NOT ILIKE 'CLOSED%'), 0) > 0
+            THEN ((COALESCE(SUM(b.net_interest) FILTER (WHERE b.last_payment_utc >= @Rolling7dStartUtc), 0) / 7.0)
+                / COALESCE(SUM(b.principal_basis) FILTER (WHERE b.status NOT ILIKE 'CLOSED%'), 0)) * 365.0
+        ELSE 0
+    END AS Rolling7dSimpleApr
+FROM book b
+LEFT JOIN wallet_by_symbol w
+    ON w.symbol = b.symbol
+LEFT JOIN redeploy r
+    ON r.symbol = b.symbol
+GROUP BY b.symbol
+ORDER BY b.symbol;";
+
+        try
+        {
+            await using var conn = await _factory.CreateOpenConnectionAsync(ct).ConfigureAwait(false);
+            using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+                sql,
+                new
+                {
+                    Exchange = exchange,
+                    Symbols = symbols.ToArray(),
+                    TodayStartUtc = todayStartUtc,
+                    YesterdayStartUtc = yesterdayStartUtc,
+                    Rolling7dStartUtc = rolling7dStartUtc,
+                    MonthStartUtc = monthStartUtc
+                },
+                cancellationToken: ct)).ConfigureAwait(false);
+
+            var overall = await multi.ReadFirstOrDefaultAsync<FundingPerformanceSnapshotRow>().ConfigureAwait(false);
+            if (overall is null)
+                return null;
+
+            var bySymbol = (await multi.ReadAsync<FundingPerformanceSymbolSnapshot>().ConfigureAwait(false)).ToList();
+            return new FundingPerformanceSnapshot(
+                ActiveCycles: overall.ActiveCycles,
+                ClosedCycles: overall.ClosedCycles,
+                ActivePrincipal: overall.ActivePrincipal,
+                CurrentTotalBalance: overall.CurrentTotalBalance,
+                CurrentAvailableBalance: overall.CurrentAvailableBalance,
+                UtilizationPct: overall.UtilizationPct,
+                IdleCapitalPct: overall.IdleCapitalPct,
+                TodayNetInterest: overall.TodayNetInterest,
+                YesterdayNetInterest: overall.YesterdayNetInterest,
+                Rolling7dNetInterest: overall.Rolling7dNetInterest,
+                MonthToDateNetInterest: overall.MonthToDateNetInterest,
+                TotalNetInterest: overall.TotalNetInterest,
+                AvgNetInterestClosedCycle: overall.AvgNetInterestClosedCycle,
+                AvgRedeployMinutesRolling7d: overall.AvgRedeployMinutesRolling7d,
+                Rolling7dSimpleApr: overall.Rolling7dSimpleApr,
+                LastPaymentUtc: overall.LastPaymentUtc,
+                LastPrincipalReturnedUtc: overall.LastPrincipalReturnedUtc,
+                Symbols: bySymbol);
+        }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "[DB-FUND] performance snapshot load failed exchange={Exchange} symbols={Count}", exchange, symbols.Count);
+            return null;
+        }
+    }
+
+    public async Task<FundingDecisionQualitySnapshot?> GetDecisionQualitySnapshotAsync(
+        string exchange,
+        IReadOnlyList<string> symbols,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(exchange) || symbols.Count == 0)
+            return null;
+
+        const string sql = @"
+SELECT
+    exchange AS Exchange,
+    symbol AS Symbol,
+    latest_shadow_action_utc AS LatestShadowActionUtc,
+    latest_regime AS LatestRegime,
+    has_actionable_shadow_action AS HasActionableShadowAction,
+    motor_action AS MotorAction,
+    motor_target_rate AS MotorTargetRate,
+    motor_fallback_rate AS MotorFallbackRate,
+    motor_deadline_utc AS MotorDeadlineUtc,
+    opportunistic_action AS OpportunisticAction,
+    opportunistic_target_rate AS OpportunisticTargetRate,
+    opportunistic_fallback_rate AS OpportunisticFallbackRate,
+    opportunistic_deadline_utc AS OpportunisticDeadlineUtc,
+    last_live_action_utc AS LastLiveActionUtc,
+    last_live_action AS LastLiveAction,
+    last_live_amount AS LastLiveAmount,
+    last_live_rate AS LastLiveRate,
+    last_live_reason AS LastLiveReason,
+    closed_cycles AS ClosedCycles,
+    active_cycles AS ActiveCycles,
+    total_net_interest AS TotalNetInterest,
+    last_payment_utc AS LastPaymentUtc,
+    last_principal_returned_utc AS LastPrincipalReturnedUtc,
+    latest_summary AS LatestSummary
+FROM v_funding_shadow_action_vs_actual
+WHERE exchange = @Exchange
+  AND symbol = ANY(@Symbols)
+ORDER BY symbol;
+
+SELECT
+    exchange AS Exchange,
+    symbol AS Symbol,
+    latest_session_opened_utc AS LatestSessionOpenedUtc,
+    latest_session_updated_utc AS LatestSessionUpdatedUtc,
+    latest_session_closed_utc AS LatestSessionClosedUtc,
+    has_open_session AS HasOpenSession,
+    motor_status AS MotorStatus,
+    motor_current_action AS MotorCurrentAction,
+    motor_resolution AS MotorResolution,
+    motor_target_rate_current AS MotorTargetRateCurrent,
+    motor_deadline_utc AS MotorDeadlineUtc,
+    opportunistic_status AS OpportunisticStatus,
+    opportunistic_current_action AS OpportunisticCurrentAction,
+    opportunistic_resolution AS OpportunisticResolution,
+    opportunistic_target_rate_current AS OpportunisticTargetRateCurrent,
+    opportunistic_deadline_utc AS OpportunisticDeadlineUtc,
+    last_live_action_utc AS LastLiveActionUtc,
+    last_live_action AS LastLiveAction,
+    closed_cycles AS ClosedCycles,
+    active_cycles AS ActiveCycles,
+    total_net_interest AS TotalNetInterest,
+    last_payment_utc AS LastPaymentUtc,
+    last_principal_returned_utc AS LastPrincipalReturnedUtc
+FROM v_funding_shadow_session_vs_actual
+WHERE exchange = @Exchange
+  AND symbol = ANY(@Symbols)
+ORDER BY symbol;";
+
+        try
+        {
+            await using var conn = await _factory.CreateOpenConnectionAsync(ct).ConfigureAwait(false);
+            using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+                sql,
+                new
+                {
+                    Exchange = exchange,
+                    Symbols = symbols.ToArray()
+                },
+                cancellationToken: ct)).ConfigureAwait(false);
+
+            var actionRows = (await multi.ReadAsync<FundingDecisionQualityActionRow>().ConfigureAwait(false)).ToList();
+            var sessionRows = (await multi.ReadAsync<FundingDecisionQualitySessionRow>().ConfigureAwait(false)).ToList();
+
+            if (actionRows.Count == 0 && sessionRows.Count == 0)
+                return null;
+
+            var sessionBySymbol = sessionRows.ToDictionary(row => row.Symbol, StringComparer.OrdinalIgnoreCase);
+            var perSymbol = new List<FundingDecisionQualitySymbolSnapshot>(Math.Max(actionRows.Count, sessionRows.Count));
+            var allSymbols = actionRows.Select(row => row.Symbol)
+                .Concat(sessionRows.Select(row => row.Symbol))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var symbol in allSymbols)
+            {
+                var action = actionRows.FirstOrDefault(row => string.Equals(row.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+                sessionBySymbol.TryGetValue(symbol, out var session);
+
+                var liveAction = action?.LastLiveAction ?? session?.LastLiveAction;
+                var liveActionMatchesShadow =
+                    !string.IsNullOrWhiteSpace(liveAction) &&
+                    (string.Equals(liveAction, action?.MotorAction, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(liveAction, action?.OpportunisticAction, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(liveAction, session?.MotorCurrentAction, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(liveAction, session?.OpportunisticCurrentAction, StringComparison.OrdinalIgnoreCase));
+
+                perSymbol.Add(new FundingDecisionQualitySymbolSnapshot(
+                    Symbol: symbol,
+                    LatestRegime: action?.LatestRegime,
+                    HasActionableShadowAction: action?.HasActionableShadowAction ?? false,
+                    LastLiveAction: liveAction,
+                    LastLiveActionUtc: action?.LastLiveActionUtc ?? session?.LastLiveActionUtc,
+                    LiveActionMatchesShadow: liveActionMatchesShadow,
+                    MotorAction: action?.MotorAction,
+                    OpportunisticAction: action?.OpportunisticAction,
+                    MotorStatus: session?.MotorStatus,
+                    OpportunisticStatus: session?.OpportunisticStatus,
+                    HasOpenShadowSession: session?.HasOpenSession ?? false,
+                    TotalNetInterest: action?.TotalNetInterest ?? session?.TotalNetInterest ?? 0m,
+                    LatestSummary: action?.LatestSummary));
+            }
+
+            return new FundingDecisionQualitySnapshot(
+                SymbolCount: perSymbol.Count,
+                ActionableSymbolCount: perSymbol.Count(item => item.HasActionableShadowAction),
+                SymbolsWithLiveActionCount: perSymbol.Count(item => !string.IsNullOrWhiteSpace(item.LastLiveAction)),
+                LiveActionMatchesShadowCount: perSymbol.Count(item => item.LiveActionMatchesShadow),
+                OpenShadowSessionCount: perSymbol.Count(item => item.HasOpenShadowSession),
+                Symbols: perSymbol);
+        }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "[DB-FUND] decision-quality snapshot load failed exchange={Exchange} symbols={Count}", exchange, symbols.Count);
+            return null;
+        }
+    }
+
     private static async Task InsertWalletSnapshotsCoreAsync(
         NpgsqlConnection conn,
         NpgsqlTransaction? transaction,
@@ -1366,3 +1771,143 @@ public sealed record FundingReconciliationLogRecord(
     string? Severity,
     string? Summary,
     object? Metadata = null);
+
+public sealed record FundingPerformanceSnapshot(
+    int ActiveCycles,
+    int ClosedCycles,
+    decimal ActivePrincipal,
+    decimal CurrentTotalBalance,
+    decimal CurrentAvailableBalance,
+    decimal UtilizationPct,
+    decimal IdleCapitalPct,
+    decimal TodayNetInterest,
+    decimal YesterdayNetInterest,
+    decimal Rolling7dNetInterest,
+    decimal MonthToDateNetInterest,
+    decimal TotalNetInterest,
+    decimal? AvgNetInterestClosedCycle,
+    decimal AvgRedeployMinutesRolling7d,
+    decimal Rolling7dSimpleApr,
+    DateTime? LastPaymentUtc,
+    DateTime? LastPrincipalReturnedUtc,
+    IReadOnlyList<FundingPerformanceSymbolSnapshot> Symbols);
+
+public sealed class FundingPerformanceSymbolSnapshot
+{
+    public string Symbol { get; init; } = string.Empty;
+    public int ActiveCycles { get; init; }
+    public int ClosedCycles { get; init; }
+    public decimal ActivePrincipal { get; init; }
+    public decimal CurrentTotalBalance { get; init; }
+    public decimal CurrentAvailableBalance { get; init; }
+    public decimal UtilizationPct { get; init; }
+    public decimal IdleCapitalPct { get; init; }
+    public decimal TodayNetInterest { get; init; }
+    public decimal YesterdayNetInterest { get; init; }
+    public decimal Rolling7dNetInterest { get; init; }
+    public decimal MonthToDateNetInterest { get; init; }
+    public decimal TotalNetInterest { get; init; }
+    public DateTime? LastPaymentUtc { get; init; }
+    public DateTime? LastPrincipalReturnedUtc { get; init; }
+    public decimal AvgRedeployMinutesRolling7d { get; init; }
+    public decimal Rolling7dSimpleApr { get; init; }
+}
+
+file sealed class FundingPerformanceSnapshotRow
+{
+    public int ActiveCycles { get; init; }
+    public int ClosedCycles { get; init; }
+    public decimal ActivePrincipal { get; init; }
+    public decimal CurrentTotalBalance { get; init; }
+    public decimal CurrentAvailableBalance { get; init; }
+    public decimal UtilizationPct { get; init; }
+    public decimal IdleCapitalPct { get; init; }
+    public decimal TodayNetInterest { get; init; }
+    public decimal YesterdayNetInterest { get; init; }
+    public decimal Rolling7dNetInterest { get; init; }
+    public decimal MonthToDateNetInterest { get; init; }
+    public decimal TotalNetInterest { get; init; }
+    public decimal? AvgNetInterestClosedCycle { get; init; }
+    public decimal AvgRedeployMinutesRolling7d { get; init; }
+    public decimal Rolling7dSimpleApr { get; init; }
+    public DateTime? LastPaymentUtc { get; init; }
+    public DateTime? LastPrincipalReturnedUtc { get; init; }
+}
+
+public sealed record FundingDecisionQualitySnapshot(
+    int SymbolCount,
+    int ActionableSymbolCount,
+    int SymbolsWithLiveActionCount,
+    int LiveActionMatchesShadowCount,
+    int OpenShadowSessionCount,
+    IReadOnlyList<FundingDecisionQualitySymbolSnapshot> Symbols);
+
+public sealed record FundingDecisionQualitySymbolSnapshot(
+    string Symbol,
+    string? LatestRegime,
+    bool HasActionableShadowAction,
+    string? LastLiveAction,
+    DateTime? LastLiveActionUtc,
+    bool LiveActionMatchesShadow,
+    string? MotorAction,
+    string? OpportunisticAction,
+    string? MotorStatus,
+    string? OpportunisticStatus,
+    bool HasOpenShadowSession,
+    decimal TotalNetInterest,
+    string? LatestSummary);
+
+file sealed class FundingDecisionQualityActionRow
+{
+    public string Exchange { get; init; } = string.Empty;
+    public string Symbol { get; init; } = string.Empty;
+    public DateTime? LatestShadowActionUtc { get; init; }
+    public string? LatestRegime { get; init; }
+    public bool HasActionableShadowAction { get; init; }
+    public string? MotorAction { get; init; }
+    public decimal? MotorTargetRate { get; init; }
+    public decimal? MotorFallbackRate { get; init; }
+    public DateTime? MotorDeadlineUtc { get; init; }
+    public string? OpportunisticAction { get; init; }
+    public decimal? OpportunisticTargetRate { get; init; }
+    public decimal? OpportunisticFallbackRate { get; init; }
+    public DateTime? OpportunisticDeadlineUtc { get; init; }
+    public DateTime? LastLiveActionUtc { get; init; }
+    public string? LastLiveAction { get; init; }
+    public decimal? LastLiveAmount { get; init; }
+    public decimal? LastLiveRate { get; init; }
+    public string? LastLiveReason { get; init; }
+    public int? ClosedCycles { get; init; }
+    public int? ActiveCycles { get; init; }
+    public decimal? TotalNetInterest { get; init; }
+    public DateTime? LastPaymentUtc { get; init; }
+    public DateTime? LastPrincipalReturnedUtc { get; init; }
+    public string? LatestSummary { get; init; }
+}
+
+file sealed class FundingDecisionQualitySessionRow
+{
+    public string Exchange { get; init; } = string.Empty;
+    public string Symbol { get; init; } = string.Empty;
+    public DateTime? LatestSessionOpenedUtc { get; init; }
+    public DateTime? LatestSessionUpdatedUtc { get; init; }
+    public DateTime? LatestSessionClosedUtc { get; init; }
+    public bool HasOpenSession { get; init; }
+    public string? MotorStatus { get; init; }
+    public string? MotorCurrentAction { get; init; }
+    public string? MotorResolution { get; init; }
+    public decimal? MotorTargetRateCurrent { get; init; }
+    public DateTime? MotorDeadlineUtc { get; init; }
+    public string? OpportunisticStatus { get; init; }
+    public string? OpportunisticCurrentAction { get; init; }
+    public string? OpportunisticResolution { get; init; }
+    public decimal? OpportunisticTargetRateCurrent { get; init; }
+    public DateTime? OpportunisticDeadlineUtc { get; init; }
+    public DateTime? LastLiveActionUtc { get; init; }
+    public string? LastLiveAction { get; init; }
+    public int? ClosedCycles { get; init; }
+    public int? ActiveCycles { get; init; }
+    public decimal? TotalNetInterest { get; init; }
+    public DateTime? LastPaymentUtc { get; init; }
+    public DateTime? LastPrincipalReturnedUtc { get; init; }
+}

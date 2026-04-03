@@ -40,17 +40,43 @@ public sealed class BitfinexFundingSymbolProfile
 
     public decimal? OpportunisticAllocationFraction { get; set; }
 
+    public decimal? AggressiveAllocationFraction { get; set; }
+
     public decimal? SniperAllocationFraction { get; set; }
 
+    public bool? EnableLiveAggressivePromotion { get; set; }
+
     public bool? EnableLiveSniperPromotion { get; set; }
+
+    public bool? EnableAdaptiveAggressiveMaxRate { get; set; }
+
+    public decimal? AggressiveAdaptiveMaxDailyRate { get; set; }
 
     public bool? EnableAdaptiveSniperMaxRate { get; set; }
 
     public decimal? SniperAdaptiveMaxDailyRate { get; set; }
 
+    public bool? EnableAdaptiveSingleSlotMaxRate { get; set; }
+
+    public decimal? SingleSlotAdaptiveMaxDailyRate { get; set; }
+
+    public bool? EnableAdaptiveMotorMaxRate { get; set; }
+
+    public decimal? MotorAdaptiveMaxDailyRate { get; set; }
+
+    public bool? EnableAdaptiveOpportunisticMaxRate { get; set; }
+
+    public decimal? OpportunisticAdaptiveMaxDailyRate { get; set; }
+
+    public int? MinManagedOfferAgeSecondsBeforeReplace { get; set; }
+
+    public int? MinManagedOfferAgeSecondsBeforeReplaceWhenCapacityFull { get; set; }
+
     public decimal? MotorRateMultiplier { get; set; }
 
     public decimal? OpportunisticRateMultiplier { get; set; }
+
+    public decimal? AggressiveRateMultiplier { get; set; }
 
     public decimal? SniperRateMultiplier { get; set; }
 
@@ -62,6 +88,14 @@ public sealed class BitfinexFundingSymbolProfile
 
     public int? ManagedOfferFallbackCarryForwardMinutes { get; set; }
 
+    public bool? EnableManagedFallbackNearMarketHold { get; set; }
+
+    public decimal? ManagedFallbackNearMarketHoldDelta { get; set; }
+
+    public bool? EnableFundingPerformanceReports { get; set; }
+
+    public int? FundingPerformanceReportIntervalMinutes { get; set; }
+
     public int? MaxActiveOffersPerSymbol { get; set; }
 
     public int? OpportunisticMaxWaitMinutesLowRegime { get; set; }
@@ -69,6 +103,12 @@ public sealed class BitfinexFundingSymbolProfile
     public int? OpportunisticMaxWaitMinutesNormalRegime { get; set; }
 
     public int? OpportunisticMaxWaitMinutesHotRegime { get; set; }
+
+    public int? AggressiveMaxWaitMinutesLowRegime { get; set; }
+
+    public int? AggressiveMaxWaitMinutesNormalRegime { get; set; }
+
+    public int? AggressiveMaxWaitMinutesHotRegime { get; set; }
 
     public int? SniperMaxWaitMinutesLowRegime { get; set; }
 

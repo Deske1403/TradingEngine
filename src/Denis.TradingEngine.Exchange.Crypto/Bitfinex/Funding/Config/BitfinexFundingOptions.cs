@@ -74,7 +74,17 @@ public sealed class BitfinexFundingOptions
 
     public int MinManagedOfferAgeSecondsBeforeReplace { get; set; } = 300;
 
+    public int MinManagedOfferAgeSecondsBeforeReplaceWhenCapacityFull { get; set; } = 300;
+
     public int ManagedOfferFallbackCarryForwardMinutes { get; set; } = 10;
+
+    public bool EnableManagedFallbackNearMarketHold { get; set; } = true;
+
+    public decimal ManagedFallbackNearMarketHoldDelta { get; set; } = 0.00001m;
+
+    public bool EnableFundingPerformanceReports { get; set; } = true;
+
+    public int FundingPerformanceReportIntervalMinutes { get; set; } = 30;
 
     public int MaxActiveOffersPerSymbol { get; set; } = 1;
 
@@ -94,17 +104,39 @@ public sealed class BitfinexFundingOptions
 
     public decimal OpportunisticAllocationFraction { get; set; } = 0.30m;
 
+    public decimal AggressiveAllocationFraction { get; set; } = 0.15m;
+
     public decimal SniperAllocationFraction { get; set; } = 0.10m;
 
+    public bool EnableLiveAggressivePromotion { get; set; }
+
     public bool EnableLiveSniperPromotion { get; set; }
+
+    public bool EnableAdaptiveAggressiveMaxRate { get; set; }
+
+    public decimal AggressiveAdaptiveMaxDailyRate { get; set; } = 0.00050m;
 
     public bool EnableAdaptiveSniperMaxRate { get; set; }
 
     public decimal SniperAdaptiveMaxDailyRate { get; set; } = 0.00050m;
 
+    public bool EnableAdaptiveSingleSlotMaxRate { get; set; }
+
+    public decimal SingleSlotAdaptiveMaxDailyRate { get; set; } = 0.00050m;
+
+    public bool EnableAdaptiveMotorMaxRate { get; set; }
+
+    public decimal MotorAdaptiveMaxDailyRate { get; set; } = 0.00050m;
+
+    public bool EnableAdaptiveOpportunisticMaxRate { get; set; }
+
+    public decimal OpportunisticAdaptiveMaxDailyRate { get; set; } = 0.00050m;
+
     public decimal MotorRateMultiplier { get; set; } = 0.97m;
 
     public decimal OpportunisticRateMultiplier { get; set; } = 1.08m;
+
+    public decimal AggressiveRateMultiplier { get; set; } = 1.13m;
 
     public decimal SniperRateMultiplier { get; set; } = 1.18m;
 
@@ -119,6 +151,12 @@ public sealed class BitfinexFundingOptions
     public int OpportunisticMaxWaitMinutesNormalRegime { get; set; } = 60;
 
     public int OpportunisticMaxWaitMinutesHotRegime { get; set; } = 20;
+
+    public int AggressiveMaxWaitMinutesLowRegime { get; set; } = 90;
+
+    public int AggressiveMaxWaitMinutesNormalRegime { get; set; } = 45;
+
+    public int AggressiveMaxWaitMinutesHotRegime { get; set; } = 15;
 
     public int SniperMaxWaitMinutesLowRegime { get; set; } = 240;
 

@@ -199,6 +199,43 @@ Recommended rollout:
 
 This keeps the engine measurable and prevents fake sophistication.
 
+Current interpretation after live rollout:
+
+- the core execution rollout is effectively complete once:
+  - `Motor`
+  - `Opportunistic`
+  - `Aggressive`
+  - bounded `Sniper`
+  are all observed live and remain stable
+- after that point, the work is no longer "add the next missing lane"
+- the work becomes:
+  - measurement of true realized yield
+  - hardening of stale-order / reposition rules
+  - fine tuning of lane balance
+
+Post-core optimization priority:
+
+- `1. Effective Yield`
+  - compute real `$ / day`, `$ / hour`, and yield on active vs total capital
+  - this becomes the primary KPI for tuning
+- `2. Hard Max Wait / Stale Cap`
+  - even with bucket wait profiles, add an explicit stale-offer ceiling so no active order can sit too long without forced review
+- `3. Formal Reposition Triggers`
+  - define exact reposition reasons such as:
+    - aged out
+    - out of target zone
+    - rate drift beyond threshold
+  - avoid subjective tuning by "feel"
+- `4. Premium Duration by Conviction`
+  - do not change duration globally
+  - keep `LOW` and `MIDDLE` / throughput lanes at `2` days
+  - allow only proven `HIGH` premium lanes to extend toward `4` days
+  - use this as selective lock-in for rare premium fills, not as a baseline rule
+- `5. Micro Laddering`
+  - this is optional and should come only after the first three items prove insufficient
+  - the engine already has a macro ladder through `Motor / Opportunistic / Aggressive / Sniper`
+  - do not add extra same-lane fragmentation unless data shows a real fill/yield benefit
+
 ## Duration Logic
 
 Duration should not be based on rate alone.
@@ -221,6 +258,12 @@ Safe starting rule:
 - only proven strong edge -> 4-5 days
 
 Never lock long duration on weak rate.
+
+Current practical interpretation:
+
+- baseline throughput lanes should still behave like `2-day` capital recyclers
+- any future move to `4-day` duration should be limited to premium `HIGH`-conviction slots
+- premium duration extension is a selective optimization candidate, not a global default
 
 ## FRR Usage
 

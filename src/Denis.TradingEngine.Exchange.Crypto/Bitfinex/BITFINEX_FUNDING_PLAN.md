@@ -1634,6 +1634,81 @@ Offer lifecycle is already tracked and partially persisted, but full funding acc
 
 That is the point where the engine moves from "offer automation" to "complete funding business accounting".
 
+## Post-core optimization order
+
+Once the live engine has already demonstrated stable cycles across:
+
+- `Motor`
+- `Opportunistic`
+- `Aggressive`
+- bounded live `Sniper`
+
+the next work should not default to adding more layers.
+
+The recommended order after core feature completion is:
+
+### 1. Effective Yield as the primary tuning KPI
+
+Add and monitor:
+
+- realized `$ / day`
+- realized `$ / hour`
+- yield on active capital
+- yield on total wallet capital
+
+Goal:
+
+- tune from true realized productivity, not just fill count or posted rate
+
+### 2. Hard stale-offer ceiling
+
+Even though bucket wait and fallback policies already exist, add an explicit rule:
+
+- if an active offer remains live beyond a hard stale threshold, it must be reviewed / repriced
+
+Goal:
+
+- prevent capital from idling too long behind outdated assumptions
+
+### 3. Formal reposition triggers
+
+Codify exact replacement reasons such as:
+
+- out of target zone
+- rate drift beyond threshold
+- stale age exceeded
+
+Goal:
+
+- make repricing deterministic and explainable
+
+### 4. Premium-duration extension only for proven `HIGH` conviction
+
+Do not increase duration globally.
+
+Safe candidate:
+
+- keep `LOW` and `MIDDLE` / throughput lanes at `2` days
+- allow only premium `HIGH`-conviction lanes to extend toward `4` days
+- treat this as a selective lock-in rule for rare premium fills, not as the default duration policy
+
+Goal:
+
+- lock unusually strong premium rates a little longer without sacrificing baseline turnover
+
+### 5. Micro-laddering only if later data proves it helps
+
+Do not treat same-lane laddering as the default next step.
+
+Reason:
+
+- the engine already has a macro ladder through:
+  - `Motor`
+  - `Opportunistic`
+  - `Aggressive`
+  - `Sniper`
+- extra fragmentation should be added only if measured data shows a clear fill-rate or realized-yield benefit
+
 ## Live Sniper Promotion v1
 
 Current status:
