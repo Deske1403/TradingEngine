@@ -307,7 +307,8 @@ public sealed class MicroPullbackReversionStrategy : ITradingStrategy
         }
 
         var earlyReclaim = _enableEarlyReclaim && IsEarlyReclaim(st, book.MicropriceEdgeBps, previousMicropriceEdgeBps);
-        var confirmedReclaim = _enableConfirmedReclaim && IsConfirmedReclaim(st, mid, book.MicropriceEdgeBps, reclaimMomentumBps);
+        var fastReclaim = _enableConfirmedReclaim && IsFastConfirmedReclaim(st, mid, book.MicropriceEdgeBps, reclaimMomentumBps);
+        var confirmedReclaim = _enableConfirmedReclaim && (fastReclaim || IsConfirmedReclaim(st, mid, book.MicropriceEdgeBps, reclaimMomentumBps));
 
         if (earlyReclaim)
         {
@@ -337,6 +338,10 @@ public sealed class MicroPullbackReversionStrategy : ITradingStrategy
         if (earlyReclaim)
         {
             reclaimMode = "early";
+        }
+        else if (fastReclaim)
+        {
+            reclaimMode = "fast";
         }
         else if (confirmedReclaim)
         {
@@ -595,6 +600,29 @@ public sealed class MicroPullbackReversionStrategy : ITradingStrategy
         var previous = st.RecentQuotes[^2];
         return current.Mid > previous.Mid ||
             currentMicropriceEdgeBps > (previousMicropriceEdgeBps ?? currentMicropriceEdgeBps);
+    }
+
+    private bool IsFastConfirmedReclaim(SymbolState st, decimal currentMid, decimal currentMicropriceEdgeBps, decimal reclaimMomentumBps)
+    {
+        if (st.Phase != Phase.Armed || st.RecentQuotes.Count < 2)
+        {
+            return false;
+        }
+
+        var previousMid = st.RecentQuotes[^2].Mid;
+        var latestDeltaMidBps = GetLatestDeltaMidBps(st);
+        var edgeRecovered = st.WorstMicropriceEdgeBps.HasValue &&
+            (currentMicropriceEdgeBps - st.WorstMicropriceEdgeBps.Value) >= _minMicropriceRecoveryBps;
+        var fastMomentumThreshold = Math.Max(0.05m, _minReclaimMomentumBps * 0.25m);
+
+        // Fast reclaim is intentionally narrower than legacy early reclaim:
+        // we only allow it once the move is armed, edge is back to non-negative,
+        // and mid/momentum are already turning up.
+        return currentMid > previousMid &&
+            latestDeltaMidBps > 0m &&
+            currentMicropriceEdgeBps >= 0m &&
+            reclaimMomentumBps >= fastMomentumThreshold &&
+            edgeRecovered;
     }
 
     private bool IsConfirmedReclaim(SymbolState st, decimal currentMid, decimal currentMicropriceEdgeBps, decimal reclaimMomentumBps)
